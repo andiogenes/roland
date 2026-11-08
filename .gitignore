@@ -1,0 +1,8 @@
+build/
+out/
+assets/hr16/*.wav
+assets/hr16/**/*.wav
+assets/hr16/*.WAV
+assets/hr16/**/*.WAV
+assets/hr16/*.zip
+__pycache__/
