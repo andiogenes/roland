@@ -78,6 +78,12 @@ class Classify(unittest.TestCase):
         self.assertEqual(c("Kick_01")[0], "KICK")
         self.assertEqual(c("HR16B_BD2")[0], "KICK")
         self.assertEqual(c("SD_Hard")[0], "SNARE")
+        self.assertEqual(c("cs_big_foot_kk")[0], "KICK")        # the Cluster Sound HR-16B names
+        self.assertEqual(c("cs_aggressive_sn")[0], "SNARE")
+        self.assertEqual(c("cs_r&b_cl_hihat")[0], "HATCL")
+        self.assertEqual(c("cs_open_conga")[0], "TOM")
+        self.assertEqual(c("cs_gated_sidestick")[0], "RIM")
+        self.assertIsNone(c("cs_torque_wrench"))
         self.assertEqual(c("Handclap")[0], "CLAP")
         self.assertEqual(c("Hat_Closed")[0], "HATCL")
         self.assertEqual(c("ClosedHiHat")[0], "HATCL")

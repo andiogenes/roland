@@ -18,7 +18,7 @@ use any kit, so a synthesized kick can play under HR-16 hats.
 | Sample importer (`overlay/tools/gen_hr16.py`) | **Tested**: 12 tests on synthetic WAVs, including a gcc build of the generated header and a bit-exact check of the firmware's ADPCM decode against the generator's. |
 | Firmware changes (`patches/felucca-drum.patch`) | **Not compiled, not run.** Written by reading Felucca 1.8.1's source. The JieLi toolchain and SDK could not be fetched in the session that wrote this, and Felucca's host tests were not run. Expect to fix compile errors on the first build. The patch does apply cleanly to the pinned Felucca commit. |
 | On the FM-1 | **Not tested.** Installing firmware is at your own risk; Felucca's installer offers a way back to the official firmware, and recovery from a failed install needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter). |
-| HR-16B samples | **Not included and never fetched.** `clustersound.com` was blocked in the session that wrote this, so nothing here is derived from the real pack. File-name matching in the importer is a best guess; run `--list` and check it. |
+| HR-16B samples | **Not included** (git-ignored). The importer was run on the Cluster Sound *Ableton Live* edition (`CS-HR-16B-Live.zip`, the WAVs in its `HR-16B/Samples/` folder, names like `cs_big_foot_kk.wav`): 47 files, 37 sorted into lanes, 3 kits (`HR-A..C`, 20 samples, 89 090 bytes) fit the default budget, and the decoded output has sane levels with no clipping. Other editions of the pack may name files differently: run `--list` and check. The 10 FX hits (bottles, pipe, ...) are not used. |
 | Flash size | **Unknown.** The 98 KiB sample budget (`HR16_BUDGET`) is a guess about what fits beside Felucca; the build's linker check will tell. Felucca's CC0 piano/flute/sax and the SLICE engine are dropped to make room. |
 
 ## Build
@@ -27,7 +27,7 @@ You need what Felucca's [BUILDING.md](https://github.com/hugelton/Felucca/blob/m
 Pillow and fonttools, the JieLi toolchain (`tools/get_toolchain.sh` in Felucca) and the AC79 SDK (Linux x86-64 runs it
 natively, otherwise Docker).
 
-1. Download the HR-16B pack and put its WAV files in `assets/hr16/` (git-ignored; check the pack's licence before you
+1. Download the HR-16B pack and put its WAV files in `assets/hr16/` (for the Live edition: everything in `HR-16B/Samples/`, not the `.adg` or `.asd` files) (git-ignored; check the pack's licence before you
    share an image that contains it).
 2. Check how the files will be sorted into lanes:
    ```

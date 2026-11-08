@@ -210,8 +210,8 @@ def ima_decode(data, n):
 CLASSES = [
     ("HATOP", ["open", "opn", "ohh", "oh", "ohat"]),
     ("HATCL", ["closed", "close", "clsd", "chh", "ch", "chat", "hat", "hihat", "hh", "hats", "pedal"]),
-    ("KICK", ["kick", "kik", "bd", "bassdrum"]),
-    ("SNARE", ["snare", "snr", "sd"]),
+    ("KICK", ["kick", "kik", "kk", "bd", "bassdrum"]),
+    ("SNARE", ["snare", "snr", "sn", "sd"]),
     ("CLAP", ["clap", "claps", "handclap", "cp"]),
     ("TOM", ["tom", "toms", "conga", "bongo", "timbale"]),
     ("RIM", ["rim", "rimshot", "sidestick", "stick", "clave", "claves", "woodblock", "rs"]),
