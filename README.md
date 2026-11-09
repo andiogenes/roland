@@ -40,6 +40,7 @@ the download or "view raw" button. All mono mp3.
 | `DEEP` `TIGHT` `PERC` | Felucca's kits put together from the model kits' pieces | [DEEP](docs/audio/kit_09_DEEP.mp3) · [TIGHT](docs/audio/kit_10_TIGHT.mp3) · [PERC](docs/audio/kit_11_PERC.mp3) |
 | `TR606` | SLOOP's synthesized TR-606 (hats of about 35 and 220 ms, a crash of about 0.7 s) | [kit_12_TR606.mp3](docs/audio/kit_12_TR606.mp3) |
 | `TR606` + COMP | the same beat through the INSERT's COMP (INPUT 100, OUT 80, fast attack, 12:1): level pulled together, the clicks of the kick and hats still get through | [insert_comp_TR606.mp3](docs/audio/insert_comp_TR606.mp3) |
+| `TR606` + tape delay | the same beat with the delay send up (80): the repeats wobble a little in pitch, darken and soften as they go round | [insert_tape_delay_TR606.mp3](docs/audio/insert_tape_delay_TR606.mp3) |
 | `ACOUS` | SLOOP's acoustic kit as recorded | [kit_13_ACOUS.mp3](docs/audio/kit_13_ACOUS.mp3) |
 | `AC-DP` | the same, pitched down and softened | [kit_14_AC-DP.mp3](docs/audio/kit_14_AC-DP.mp3) |
 | `AC-TI` | the same with a quick decay | [kit_15_AC-TI.mp3](docs/audio/kit_15_AC-TI.mp3) |
@@ -175,6 +176,9 @@ Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/tes
   delay, the Dragonfly room) are in. With these effects at their defaults the audio of every kit is **bit-for-bit identical**
   to before; the FX page shows DLY and REV only. Stored values keep their ids (a project with a DIST amount loads, and the
   amount is ignored). The modulation matrix's DIST and CHO destinations are retired the same way (they load as OFF).
+* **The delay is a tape echo** (FX plan step 3, `overlay/firmware/src/fx_tape.c`): the read head wanders (wow about 0.2 % of pitch, flutter
+  0.05 %), what goes onto the tape is soft-clipped, and each repeat goes through the COLR low-pass as before. TIME, FDBK, COLR and MIX
+  keep their meaning; ECHO THROW and the tempo-synced times work as they did. `tests/test_tape.py` checks the wander and the tap.
 * `FELUCCA_HR16=1`: KIT values `HR-A`.. appended after PERC. A hit plays one IMA ADPCM sample per lane, resampled by
   **TUNE**; **DECY** below 64 shortens it, **TONE** below 64 darkens it, **DRV** distorts it; the closed hat chokes the open
   hat. **SNAP, KICK and ACC do nothing** on a sample kit. Level and accent come from velocity. GM notes keep Felucca's

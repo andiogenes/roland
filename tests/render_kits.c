@@ -16,6 +16,7 @@ static const uint8_t BEAT[32][4] = {
     {36, 42, 0}, {0}, {36, 42, 0}, {37, 0}, {38, 39, 0}, {43, 0}, {46, 0}, {48, 0},
 };
 
+static int16_t dly_cfg;                             /* the part's delay send (0: none) */
 static int16_t ins_cfg[6];                          /* INSERT: TYPE, A .. E (TYPE 0: none) */
 
 static const char *kit_name(uint32_t k)
@@ -40,6 +41,8 @@ static int32_t play_kit(uint32_t kit, FILE *f, double *rms, uint32_t *clips)
     dc_l = dc_r = dce_l = dce_r = 0;
     host_drums(&trk[3]);
     trk[3].p[P_E0] = (int16_t)kit;
+    if (dly_cfg)
+        trk[3].p[P_DLY] = dly_cfg;
     if (ins_cfg[0]) {
         trk[3].p[P_ITYPE] = ins_cfg[0]; trk[3].p[P_IA] = ins_cfg[1]; trk[3].p[P_IB] = ins_cfg[2];
         trk[3].p[P_IC] = ins_cfg[3]; trk[3].p[P_ID] = ins_cfg[4]; trk[3].p[P_IE] = ins_cfg[5];
@@ -128,6 +131,20 @@ int main(int argc, char **argv)
         fclose(f);
         printf("COMP on TR606: peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
         memset(ins_cfg, 0, sizeof ins_cfg);
+    }
+    {   /* the delay as a tape echo: send 80, the delay's own defaults (FDBK 60 %, COLR 70, MIX 90) */
+        double rms;
+        uint32_t clips;
+        int32_t peak;
+        FILE *f;
+        dly_cfg = 80;
+        snprintf(path, sizeof path, "%s/insert_tape_delay_TR606.wav", dir);
+        f = fopen(path, "wb");
+        wav_hdr(f, FS * 5u);
+        peak = play_kit(DK_606, f, &rms, &clips);
+        fclose(f);
+        printf("tape delay on TR606: peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
+        dly_cfg = 0;
     }
     {   /* patch the combined file's sizes */
         uint32_t frames = shown * FS * 5u, v;

@@ -649,7 +649,7 @@ index 579413a..3646e7e 100644
  
  /* ------------------------------------------------- MIDI, sequencer --- */
 diff --git a/firmware/src/fx.c b/firmware/src/fx.c
-index d2bcf92..e65d615 100644
+index d2bcf92..02018ef 100644
 --- a/firmware/src/fx.c
 +++ b/firmware/src/fx.c
 @@ -5,7 +5,9 @@
@@ -662,7 +662,17 @@ index d2bcf92..e65d615 100644
  static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
  static const uint16_t REV_AP[2] = {556, 441};
  static int16_t rev_comb[1116 + 1188 + 1277 + 1356] __attribute__((section(".pool")));
-@@ -89,6 +91,10 @@ static struct {                          /* HALL's state (in the pool: no .bss)
+@@ -14,7 +16,9 @@ static union {                          /* ROOM's allpasses; SPRING's allpass ch
+     int32_t sp[(556 + 441) / 2];
+ } rev_u __attribute__((section(".pool")));
+ #define rev_ap (rev_u.ap)
++#include "fx_tape.c"                  /* the delay as a tape echo: wow and flutter, saturation */
+ static struct {
++    tape_t tape;
+     uint32_t dly_w, cho_w, cho_ph;
+     int32_t dly_lp;
+     uint16_t comb_i[4], ap_i[2];
+@@ -89,6 +93,10 @@ static struct {                          /* HALL's state (in the pool: no .bss)
  } hl __attribute__((section(".pool")));
  #define rev_side (hl.sd)
  
@@ -673,7 +683,7 @@ index d2bcf92..e65d615 100644
  /* DIST: low cut -> drive (1x..8x, exponential) -> asymmetric soft clip
   * (a little bias = even harmonics) -> tone low-pass that closes with drive ->
   * make-up gain (straight into tanh over the full band, it would sound like a
-@@ -113,6 +119,8 @@ static void track_dist(track_t *t, int32_t *b, uint32_t n)
+@@ -113,6 +121,8 @@ static void track_dist(track_t *t, int32_t *b, uint32_t n)
      }
  }
  
@@ -682,12 +692,12 @@ index d2bcf92..e65d615 100644
  /* master: peak limiter in front of the soft clipper. Fast attack (~0.1 ms),
   * ~150 ms release, threshold where tanh is still nearly linear, so chords
   * get quieter instead of crushed. */
-@@ -562,13 +570,17 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
+@@ -562,13 +572,17 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
      uint32_t i, dl = delay_samples();
      int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
      int32_t dmix = song.g[G_DMIX] * 258;
 -    int32_t cdepth = song.g[G_CDEPTH] * 6, rt;
-+    int32_t rt;
++    int32_t rt, m0 = fx.tape.m, m1 = tape_wander(&fx.tape, n), mstep = (m1 - m0) / (int32_t)n;
 +#if !FELUCCA_DRUMONLY
 +    int32_t cdepth = song.g[G_CDEPTH] * 6;
      uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
@@ -701,15 +711,27 @@ index d2bcf92..e65d615 100644
          /* chorus: modulated short delay, 5..15 ms */
          cho_buf[fx.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
          fx.cho_ph += cinc;
-@@ -580,6 +592,7 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
+@@ -580,15 +594,17 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
              y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
          }
          fx.cho_w++;
 +#endif
          /* delay with a low-passed feedback */
-         x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
+-        x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
++        x = tape_tap(dly_buf, DLY_LEN - 1u, fx.dly_w, dl, m0 + mstep * (int32_t)i);
          fx.dly_lp += mulq15(x - fx.dly_lp, col);
-@@ -613,6 +626,58 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
+         dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
+-            (int16_t)clamp((dly_in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
++            (int16_t)softclip(clamp((dly_in[i] >> 1) + mulq15(fx.dly_lp, fb), -65535, 65535));   /* onto the tape */
+         fx.dly_w++;
+         y += mulq15(x << 1, dmix);
+         wet[i] = y;
+     }
++    fx.tape.m = m1;
+     rt = song.g[G_RTYPE];
+     rt = rt == 1 || rt == 2 ? rt : 0;
+     hl.side = 0;
+@@ -613,6 +629,58 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
      }
  }
  
@@ -768,7 +790,7 @@ index d2bcf92..e65d615 100644
  /* INSERT (1.5, Discussions #78 and #177): one effect per track, after DIST and before the SLICER, with a dry / wet
   * MIX. TYPE (P_ITYPE, N_ITYPE; stored, append-only) and its three values A B C (P_IA .. P_IC, what they mean: params.c
   * ins_desc):
-@@ -803,6 +868,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
+@@ -803,6 +871,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
          ins_drive(s, t, b, n, tw);
      t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
  }
@@ -776,7 +798,7 @@ index d2bcf92..e65d615 100644
  
  /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
   * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-@@ -896,7 +962,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -896,7 +965,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
  #endif
          t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                           * voice (the INSERT's: 46 ms, a flanger's feedback) */
@@ -785,7 +807,7 @@ index d2bcf92..e65d615 100644
          slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
          if (t->ins_run && !t->p[P_ITYPE])
              ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
-@@ -918,7 +984,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -918,7 +987,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                                                           * them, no spill in the loop: the ISR's cost as before 1.5) */
          int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
          int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
