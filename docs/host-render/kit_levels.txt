@@ -1,24 +1,32 @@
 kits: 26 (DK_COUNT)
- 0 STD    peak 23610 rms   4592 clipped 0
- 4 80     peak 23067 rms   4158 clipped 0
- 5 10     peak 20179 rms   5089 clipped 0
- 6 66     peak 22655 rms   4036 clipped 0
- 7 55     peak 21255 rms   3742 clipped 0
- 8 77     peak 20165 rms   4868 clipped 0
- 9 DEEP   peak 23986 rms   4746 clipped 0
-10 TIGHT  peak 21977 rms   3802 clipped 0
-11 PERC   peak 20565 rms   4759 clipped 0
-12 TR606  peak 22630 rms   3728 clipped 0
-13 ACOUS  peak 20376 rms   2582 clipped 0
-14 AC-DP  peak 17524 rms   2764 clipped 0
-15 AC-TI  peak 19976 rms   1962 clipped 0
-16 AC-BR  peak 20401 rms   2492 clipped 0
-17 AC-DU  peak 18075 rms   2607 clipped 0
-18 DRMU1  peak 19465 rms   4061 clipped 0
-19 DRMU2  peak 20229 rms   4014 clipped 0
-20 DRMU3  peak 19514 rms   3698 clipped 0
-21 HR-A   peak 20195 rms   3657 clipped 0
-22 HR-B   peak 20954 rms   3905 clipped 0
-23 HR-C   peak 21455 rms   3888 clipped 0
-24 HR-D   peak 20993 rms   3584 clipped 0
-25 HR-E   peak 20750 rms   3988 clipped 0
+ 0 STD    peak 23635 rms   4572 clipped 0
+ 4 80     peak 22951 rms   4078 clipped 0
+ 5 10     peak 20133 rms   4988 clipped 0
+ 6 66     peak 22983 rms   3939 clipped 0
+ 7 55     peak 21387 rms   3783 clipped 0
+ 8 77     peak 20130 rms   4842 clipped 0
+ 9 DEEP   peak 24021 rms   4803 clipped 0
+10 TIGHT  peak 21547 rms   3847 clipped 0
+11 PERC   peak 20791 rms   4640 clipped 0
+12 TR606  peak 23334 rms   3772 clipped 0
+13 ACOUS  peak 20394 rms   2540 clipped 0
+14 AC-DP  peak 17529 rms   2722 clipped 0
+15 AC-TI  peak 20006 rms   1944 clipped 0
+16 AC-BR  peak 20448 rms   2478 clipped 0
+17 AC-DU  peak 18075 rms   2579 clipped 0
+18 DRMU1  peak 19232 rms   4010 clipped 0
+19 DRMU2  peak 20214 rms   4008 clipped 0
+20 DRMU3  peak 19223 rms   3694 clipped 0
+21 HR-A   peak 19797 rms   3620 clipped 0
+22 HR-B   peak 21033 rms   3928 clipped 0
+23 HR-C   peak 21281 rms   3810 clipped 0
+24 HR-D   peak 20945 rms   3585 clipped 0
+25 HR-E   peak 20828 rms   3934 clipped 0
+COMP on TR606: peak 31486 rms   2994 clipped 0
+ROT on TR606: peak 18815 rms   3237 clipped 0
+METAL on TR606: peak 19145 rms   1206 clipped 0
+HARM on TR606: peak 18299 rms    443 clipped 0
+PRE on TR606: peak 18892 rms   2237 clipped 0
+master chain on TR606: peak 18883 rms   1883 clipped 0
+reverb on TR606 (master -12 dB): peak  9081 rms   1500 clipped 0
+tape delay on TR606: peak 23548 rms   4259 clipped 0

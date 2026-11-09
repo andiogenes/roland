@@ -75,6 +75,16 @@ int main(int argc, char **argv)
         }
         mtrk[0].p[P_ITYPE] = mtrk[1].p[P_ITYPE] = 0;
     }
+    {   /* the REVERB page: DECAY SIZE DAMP of the Dragonfly Room */
+        uint32_t q;
+        for (q = 0; q < NPALETTES && strcmp(UI_PALETTES[q].name, "NIGHT"); q++)
+            ;
+        setup(S_DRUM);
+        go_title("REVERB");
+        pal(q);
+        draw(S_DRUM);
+        write_ppm(out, "NIGHT", "reverb_page");
+    }
     {   /* the same grid and KIT page in every palette (GREY MONO GREEN PAPER NIGHT) */
         static const char *const PALS[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};
         uint32_t q, pi;

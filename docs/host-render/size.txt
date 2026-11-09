@@ -1,0 +1,4 @@
+felucca.c type-checks with FELUCCA_DRUMONLY=0
+felucca.c type-checks with FELUCCA_DRUMONLY=1
+code + read-only data, bytes:   all engines 689549   drum only 611606   saved 77943 (11 %)
+RAM (data + bss), bytes:        all engines 425254   drum only 501713

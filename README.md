@@ -44,6 +44,7 @@ the download or "view raw" button. All mono mp3.
 | `TR606` + HARM | the same beat through the INSERT's HARM, the Percolator model (HARMONICS 100, BALANCE 90, MODE GE) | [insert_harm_TR606.mp3](docs/audio/insert_harm_TR606.mp3) |
 | `TR606` + PRE | the same beat through the INSERT's PRE, the Surveyor-style preamp on the IVP's signal path (GAIN 50, BASS +20, TREBLE +10) | [insert_pre_TR606.mp3](docs/audio/insert_pre_TR606.mp3) |
 | `TR606` + master chain | the same beat with the master chain: slot A COMP, slot B HARM (MIX 50) on the whole mix | [insert_master_TR606.mp3](docs/audio/insert_master_TR606.mp3) |
+| `TR606` + the room | the same beat with the reverb send at 64: the Dragonfly Room (Medium Clear Room, DECAY 20, SIZE 42, DAMP 0) | [insert_reverb_TR606.mp3](docs/audio/insert_reverb_TR606.mp3) |
 | `TR606` + ROT | the same beat through the INSERT's ROT (wow 60, dropouts 40, loss 70, hiss 50, drive 30): a worn tape | [insert_rot_TR606.mp3](docs/audio/insert_rot_TR606.mp3) |
 | `TR606` + tape delay | the same beat with the delay send up (80): the repeats wobble a little in pitch, darken and soften as they go round | [insert_tape_delay_TR606.mp3](docs/audio/insert_tape_delay_TR606.mp3) |
 | `ACOUS` | SLOOP's acoustic kit as recorded | [kit_13_ACOUS.mp3](docs/audio/kit_13_ACOUS.mp3) |
@@ -195,6 +196,18 @@ Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/tes
 * **The delay is a tape echo** (FX plan step 3, `overlay/firmware/src/fx_tape.c`): the read head wanders (wow about 0.2 % of pitch, flutter
   0.05 %), what goes onto the tape is soft-clipped, and each repeat goes through the COLR low-pass as before. TIME, FDBK, COLR and MIX
   keep their meaning; ECHO THROW and the tempo-synced times work as they did. `tests/test_tape.py` checks the wander and the tap.
+* **The reverb is the Dragonfly Room** (FX plan step 5; `overlay/firmware/src/fx_dfly.c`): Freeverb3's early reflections and Progenitor2 reverb as
+  Dragonfly Reverb drives them (the Medium Clear Room preset), in fixed point at 22.05 kHz with int16 buffers: 20 modulated input
+  all-passes, the cross-fed tank of modulated and plain all-passes and delays with its 40 output taps, the output combs, 6 early taps a side.
+  REVERB's knobs: **DECAY** (0.25 .. 5 s; it replaces TYPE: a project saved with a TYPE loads as the default), **SIZE** (8 .. 20 m, 42 is
+  the preset's 12 m; changing it clears the room) and **DAMP** (the damping filters, 10 kHz .. 3 kHz). The old ROOM, SPRING and HALL are
+  not built (their buffers are gone). Checked against a float transcription (`tools/fxlab/dfroom_float.c`), which is checked against
+  Freeverb3's own impulse response (`tests/dfroom_ref.sh`, needs a clone of dragonfly-reverb; `tests/test_dfroom_float.py`, `tests/test_dfly.py`):
+  decay curve, energy, spectrum and early reflections agree within about a decibel or two; the modulation noise is a stand-in, so the match
+  is statistical. The send's level is set so that the TR606 beat with the send at 64 has the old room's wet level (within 0.7 dB).
+  **Memory**: the room's buffers are 88 KB of the FM-1's 360 KB pool; to make it fit the engines' state region (it was sized for the engines
+  that are gone) and the three old reverbs' buffers were removed: the host build's pool is 360 320 bytes of 368 640 (8 KB spare, the build
+  script's minimum), which has not been checked on the device.
 * `FELUCCA_HR16=1`: KIT values `HR-A`.. appended after PERC. A hit plays one IMA ADPCM sample per lane, resampled by
   **TUNE**; **DECY** below 64 shortens it, **TONE** below 64 darkens it, **DRV** distorts it; the closed hat chokes the open
   hat. **SNAP, KICK and ACC do nothing** on a sample kit. Level and accent come from velocity. GM notes keep Felucca's
@@ -232,7 +245,7 @@ are dropped from the end to fit: HR-16 kits first (the five that fit with the re
 
 ## Credits
 
-[Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita / Hügelton Instruments; [SLOOP](https://github.com/isod89/sloop-fm1)
+[Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita / Hügelton Instruments; the room reverb is [Dragonfly Reverb](https://github.com/michaelwillis/dragonfly-reverb) by Michael Willis and Rob van den Berg (GPL-3.0), whose engine is Teru Kamogashira's [Freeverb3](https://github.com/ilmarinen/freeverb3) (GPL-2+) and the Progenitor reverberator of David Griesinger; [SLOOP](https://github.com/isod89/sloop-fm1)
 by isod89 (the TR-606 kit and the synth that plays it, the acoustic kit and its treatments);
 the acoustic recordings are Versilian Studios' VCSL (CC0); the Alesis HR-16B samples are Cluster Sound's; the Drumulator
 sounds are as you supplied them ("drm-EMU Drumulator"; I do not know who made that set of files).

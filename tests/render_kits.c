@@ -16,6 +16,8 @@ static const uint8_t BEAT[32][4] = {
     {36, 42, 0}, {0}, {36, 42, 0}, {37, 0}, {38, 39, 0}, {43, 0}, {46, 0}, {48, 0},
 };
 
+static int16_t master_cfg;                          /* the master level, Q12 (0: 4096) */
+static int16_t rev_cfg;                             /* the part's reverb send (0: none) */
 static int16_t dly_cfg;                             /* the part's delay send (0: none) */
 static int16_t ins_cfg[6];                          /* INSERT: TYPE, A .. E (TYPE 0: none) */
 
@@ -43,13 +45,15 @@ static int32_t play_kit(uint32_t kit, FILE *f, double *rms, uint32_t *clips)
     trk[3].p[P_E0] = (int16_t)kit;
     if (dly_cfg)
         trk[3].p[P_DLY] = dly_cfg;
+    if (rev_cfg)
+        trk[3].p[P_REV] = rev_cfg;
     if (ins_cfg[0]) {
         trk[3].p[P_ITYPE] = ins_cfg[0]; trk[3].p[P_IA] = ins_cfg[1]; trk[3].p[P_IB] = ins_cfg[2];
         trk[3].p[P_IC] = ins_cfg[3]; trk[3].p[P_ID] = ins_cfg[4]; trk[3].p[P_IE] = ins_cfg[5];
     }
     for (i = 0; i < 3; i++)                           /* the other parts silent */
         trk[i].p[P_LEVEL] = 0;
-    song.master_q12 = 4096;
+    song.master_q12 = master_cfg ? master_cfg : 4096;
     *clips = 0;
     for (fr = 0; fr < frames; fr += CTL) {
         int32_t o[2 * CTL];
@@ -206,6 +210,33 @@ int main(int argc, char **argv)
         fclose(f);
         printf("master chain on TR606: peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
         mtrk[0].p[P_ITYPE] = mtrk[1].p[P_ITYPE] = 0;
+    }
+    {   /* the reverb: the TR606 beat dry and with the reverb send at 64, the master 12 dB down (no limiter at work): the reverb's own level is
+         * the difference, what a change of reverb must keep */
+        double rms;
+        uint32_t clips;
+        int32_t peak;
+        FILE *f;
+        master_cfg = 1024;
+        snprintf(path, sizeof path, "%s/reverb_off_TR606.wav", dir);
+        f = fopen(path, "wb");
+        wav_hdr(f, FS * 5u);
+        play_kit(DK_606, f, &rms, &clips);
+        fclose(f);
+        rev_cfg = 64;
+        snprintf(path, sizeof path, "%s/reverb_on_TR606.wav", dir);
+        f = fopen(path, "wb");
+        wav_hdr(f, FS * 5u);
+        peak = play_kit(DK_606, f, &rms, &clips);
+        fclose(f);
+        printf("reverb on TR606 (master -12 dB): peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
+        master_cfg = 0;
+        snprintf(path, sizeof path, "%s/insert_reverb_TR606.wav", dir);       /* the same at the normal master level: the clip */
+        f = fopen(path, "wb");
+        wav_hdr(f, FS * 5u);
+        play_kit(DK_606, f, &rms, &clips);
+        fclose(f);
+        rev_cfg = 0;
     }
     {   /* the delay as a tape echo: send 80, the delay's own defaults (FDBK 60 %, COLR 70, MIX 90) */
         double rms;

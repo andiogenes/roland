@@ -533,10 +533,21 @@ index eefafea..58f934f 100644
  
  static const engine_t ENG_DRUM = {
 diff --git a/firmware/src/engines.c b/firmware/src/engines.c
-index af4e4c6..7373968 100644
+index af4e4c6..c51e0f0 100644
 --- a/firmware/src/engines.c
 +++ b/firmware/src/engines.c
-@@ -25,6 +25,20 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
+@@ -12,7 +12,9 @@
+  * that runs on across notes and switches stays outside (WHEEL's wheels, GRAIN's random numbers).
+  * Sized by the largest, ADPCM when it is built (else PHYS, 3 x SYMP's slot); an engine that needs more than ENG_MEM_PART grows it for
+  * every part (x NPART of the pool). Zero-initialised pool section: main.c fm1_cstart clears it. */
+-#if FELUCCA_ADPCM
++#if FELUCCA_DRUMONLY
++#define ENG_MEM_PART 3528u    /* DRUM, the only engine: 8 lanes of drum_lane_t (3520 B on the host; the other engines' states are not built) */
++#elif FELUCCA_ADPCM
+ #define ENG_MEM_PART 13344u    /* ADPCM: its 192 ms echo line, 8 voices and the DSP (13288 B; the host's pointers 13320) */
+ #else
+ #define ENG_MEM_PART 12888u
+@@ -25,6 +27,20 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
  #define ENG_MEM(p) ((void *)eng_mem[p].b)  /* part p's region (p < NPART) */
  #define ENG_MEM_FITS(name, size) _Static_assert((size) <= ENG_MEM_PART, name " state over ENG_MEM_PART")
  
@@ -557,7 +568,7 @@ index af4e4c6..7373968 100644
  #include "../engines/src/eng_analog.c"   /* Felucca-Engines (MIT): ANALOG LOFI TRIO WHEEL NOISE */
  #include "../engines/src/eng_phase.c"   /* Felucca-Engines (MIT): PHASE */
  #include "../engines/src/eng_lofi.c"
-@@ -47,8 +61,12 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
+@@ -47,8 +63,12 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
  #if FELUCCA_ADPCM
  #include "eng_adpcm.c"           /* ADPCM: BRR waves and an FIR echo, its DSP ported from snes_spc (adpcm_dsp.c, LGPL-2.1+) */
  #endif
@@ -570,7 +581,7 @@ index af4e4c6..7373968 100644
  static const engine_t *const ENGINES[NENGINES] = {
      &ENG_ANALOG,                 /* 0 */
  #if FELUCCA_FM4
-@@ -74,6 +92,7 @@ static const engine_t *const ENGINES[NENGINES] = {
+@@ -74,6 +94,7 @@ static const engine_t *const ENGINES[NENGINES] = {
      &ENG_ADPCM,                  /* 14 (ENGI_ADPCM; FELUCCA_ADPCM=0 builds without it) */
  #endif
  };
@@ -578,7 +589,7 @@ index af4e4c6..7373968 100644
  
  /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
  static inline uint32_t eng_idx(uint32_t e) { return e < NENGINES ? e : 0u; }
-@@ -101,6 +120,9 @@ static void eng_mem_claim(const track_t *t)
+@@ -101,6 +122,9 @@ static void eng_mem_claim(const track_t *t)
   * invalid user slot, a set or PIANO this build lacks): its name (it plays a sine: eng_sample.c smp_sine), 0 = none;
   * *code a small number for it (1.., per engine and source) so the UI says it once (ui_input.c sample_notice) */
  static uint8_t snd_said[NTRK];   /* per track: the code last said, 0 = none (a project load clears them: said again) */
@@ -588,7 +599,7 @@ index af4e4c6..7373968 100644
  static const char *snd_missing(const track_t *t, uint32_t *code)
  {
      const engine_t *e = ENGINES[eng_idx(t->eng_req)];
-@@ -117,11 +139,16 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
+@@ -117,11 +141,16 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
      *code = (e == &ENG_GRAIN ? 32u : 1u) + si % 32u;
      return smp_set_missing(si) ? SMP_ALL_NAMES[si] : 0;
  }
@@ -605,7 +616,7 @@ index af4e4c6..7373968 100644
      0,                           /* ANALOG */
      12,                          /* FM6 */
  #if FELUCCA_FM4
-@@ -137,16 +164,22 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
+@@ -137,16 +166,22 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
      14,                          /* ADPCM (1.8): last, so the EDIT layer's white keys keep the 13 above (ui_layer.c LY_ENG_KEYS) */
  #endif
  };
@@ -630,7 +641,7 @@ index af4e4c6..7373968 100644
      for (n = 0; n < NENG_SHOWN && ENGINE_ORDER[n] != e; n++)
          ;
      return n < NENG_SHOWN ? n : 0u;
-@@ -200,6 +233,13 @@ static const struct {
+@@ -200,6 +235,13 @@ static const struct {
  #define NPATTERNS (sizeof PATTERNS / sizeof PATTERNS[0])
  
  /* the parts at power-on (engine, preset, PATTERNS[n - 1] in the sequencer, 0 = empty: all are): bass, pad, lead, drums */
@@ -695,10 +706,10 @@ index 579413a..3646e7e 100644
  
  /* ------------------------------------------------- MIDI, sequencer --- */
 diff --git a/firmware/src/fx.c b/firmware/src/fx.c
-index d2bcf92..c6f7ab4 100644
+index d2bcf92..eed2988 100644
 --- a/firmware/src/fx.c
 +++ b/firmware/src/fx.c
-@@ -5,7 +5,9 @@
+@@ -5,16 +5,22 @@
  #define DLY_LEN 65536u           /* 1.49 s: 1/4 fits from 41 BPM, 1/4D from 61, 1/2 from 81 */
  #define CHO_LEN 2048u
  static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
@@ -707,18 +718,42 @@ index d2bcf92..c6f7ab4 100644
 +#endif
  static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
  static const uint16_t REV_AP[2] = {556, 441};
++#if !FELUCCA_DRUMONLY                    /* (DRUMONLY: the Dragonfly Room's own pool, fx_dfly.c; the three old models and their buffers are not built) */
  static int16_t rev_comb[1116 + 1188 + 1277 + 1356] __attribute__((section(".pool")));
-@@ -14,7 +16,9 @@ static union {                          /* ROOM's allpasses; SPRING's allpass ch
+ static union {                          /* ROOM's allpasses; SPRING's allpass chain (int32: no clamps) */
+     int16_t ap[556 + 441];
      int32_t sp[(556 + 441) / 2];
  } rev_u __attribute__((section(".pool")));
  #define rev_ap (rev_u.ap)
++#endif
 +#include "fx_tape.c"                  /* the delay as a tape echo: wow and flutter, saturation */
  static struct {
 +    tape_t tape;
      uint32_t dly_w, cho_w, cho_ph;
      int32_t dly_lp;
      uint16_t comb_i[4], ap_i[2];
-@@ -89,6 +93,10 @@ static struct {                          /* HALL's state (in the pool: no .bss)
+@@ -41,7 +47,9 @@ static struct {
+ #define SP_N 10u                         /* allpass stages */
+ #define SP_A 2867                        /* their coefficient, Q12 (0.7: Q12 keeps (x - o) * a in 32 bits up to
+                                           * |x - o| < 749000, far past any peak the chain reaches) */
++#if !FELUCCA_DRUMONLY
+ _Static_assert(sizeof rev_comb / 2u >= SP_LEN && sizeof rev_u.sp / 4u >= 4u * (SP_N + 1u), "SPRING in ROOM's buffers");
++#endif
+ 
+ /* HALL (G_RTYPE 2, 1.2): a smooth, dense, stereo reverb, again in ROOM's buffers (its few states and one block
+  * of work in the pool, no .bss). ROOM's 4 combs each ring on their own (the metallic tone); here every echo
+@@ -72,8 +80,10 @@ _Static_assert(sizeof rev_comb / 2u >= SP_LEN && sizeof rev_u.sp / 4u >= 4u * (S
+ static const uint16_t HL_LEN[HL_NL] = {467, 509, 547, 593, 631, 673, 709, 743};   /* (+1 each: the mirror) */
+ static const uint16_t HL_AP[HL_NAP] = {131, 307};
+ static const int16_t HL_APG[HL_NAP] = {11469, 10240};               /* Q14: 0.7, 0.625 */
++#if !FELUCCA_DRUMONLY
+ _Static_assert(467 + 509 + 547 + 593 + 631 + 673 + 709 + 743 + HL_NL <= sizeof rev_comb / 2u &&
+                131 + 307 <= sizeof rev_u.ap / 2u, "HALL in ROOM's buffers");
++#endif
+ _Static_assert(CTL % 2u == 0u && HL_NC + 2u * HL_MOD + 2u < 467u && HL_NC <= 131u, "HALL: one wrap a block at most");
+ static struct {                          /* HALL's state (in the pool: no .bss) */
+     uint16_t i[HL_NL], d[HL_NAP];        /* the lines' write indices, the diffusers' */
+@@ -89,6 +99,10 @@ static struct {                          /* HALL's state (in the pool: no .bss)
  } hl __attribute__((section(".pool")));
  #define rev_side (hl.sd)
  
@@ -729,7 +764,7 @@ index d2bcf92..c6f7ab4 100644
  /* DIST: low cut -> drive (1x..8x, exponential) -> asymmetric soft clip
   * (a little bias = even harmonics) -> tone low-pass that closes with drive ->
   * make-up gain (straight into tanh over the full band, it would sound like a
-@@ -113,6 +121,8 @@ static void track_dist(track_t *t, int32_t *b, uint32_t n)
+@@ -113,6 +127,8 @@ static void track_dist(track_t *t, int32_t *b, uint32_t n)
      }
  }
  
@@ -738,7 +773,89 @@ index d2bcf92..c6f7ab4 100644
  /* master: peak limiter in front of the soft clipper. Fast attack (~0.1 ms),
   * ~150 ms release, threshold where tanh is still nearly linear, so chords
   * get quieter instead of crushed. */
-@@ -562,13 +572,17 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
+@@ -240,6 +256,7 @@ static uint32_t delay_samples(void)
+     return s < 16u ? 16u : s >= DLY_LEN ? DLY_LEN - 1u : s;
+ }
+ 
++#if !FELUCCA_DRUMONLY
+ /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
+ static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
+ {
+@@ -489,14 +506,57 @@ static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *o
+     hl.side = 1;
+ }
+ 
++#endif                                                  /* (!DRUMONLY: ROOM, SPRING and HALL) */
++
++#if FELUCCA_DRUMONLY
++#include "fx_dfly.c"                                    /* the Dragonfly Room (docs/FX-PLAN.md step 5): the only reverb model */
++/* the room on the reverb bus: the send at half the rate (1 2 1), Q13 with 4096 a full-scale input (a headroom of 8 sends), then the
++ * wet levels of the plugin (early 10 %, late 20 %, x 8 back to the mix's scale, x DFR_G), stereo as mid and side (rev_side_mix). SIZE
++ * G_RSIZE (8 .. 20 m), DECAY G_RTYPE (a value under 8 is a project saved with the old TYPE: the default), DAMP G_RDAMP. */
++#define DFR_GL 139                                      /* the late return, Q4: 0.2 x 8 x 5.4: the old room's level against the dry mix (the TR606 beat, send 64, master -12 dB: wet rms 483) */
++#define DFR_GE 69                                       /* the early return: 0.1 x 8 x 5.4 */
++static __attribute__((noinline)) void rev_dfly(const int32_t *rev_in, int32_t *out, uint32_t n)
++{
++    uint32_t i, nc = n / 2u;
++    int32_t size = song.g[G_RSIZE], decay = song.g[G_RTYPE] < 8 ? 20 : song.g[G_RTYPE], damp = song.g[G_RDAMP];
++    if (!dfr.ok || dfr.sz != size) {
++        dfr_setup(size, decay, damp);
++    } else {
++        if (dfr.rt != decay)
++            dfr_tune(decay);
++        if (dfr.dp != damp)
++            dfr_damp(damp);
++    }
++    for (i = 0; i < nc; i++) {
++        int32_t x = (dfr.xp + 2 * rev_in[2u * i] + rev_in[2u * i + 1u]) >> 2, eL, eR, lL, lR, mm, ss;
++        dfr.xp = rev_in[2u * i + 1u];
++        dfr_step(clamp(x, -262143, 262143) >> 3, &eL, &eR, &lL, &lR);
++        mm = ((eL + eR) * DFR_GE + (lL + lR) * DFR_GL) >> 5;
++        ss = ((eL - eR) * DFR_GE + (lL - lR) * DFR_GL) >> 5;
++        out[2u * i] += (dfr.ml + mm) >> 1;
++        out[2u * i + 1u] += mm;
++        rev_side[2u * i] = (dfr.ms + ss) >> 1;
++        rev_side[2u * i + 1u] = ss;
++        dfr.ml = mm;
++        dfr.ms = ss;
++    }
++    hl.side = 1;
++}
++#endif
++
+ /* the reverb's buffers and states to silence (the model changed) */
+ static void rev_clear(void)
+ {
+     uint32_t i;
++#if FELUCCA_DRUMONLY
++    dfr.ok = 0;                                         /* (the room: set up again from silence) */
++#endif
++#if !FELUCCA_DRUMONLY
+     for (i = 0; i < sizeof rev_comb / 2u; i++)
+         rev_comb[i] = 0;
+     for (i = 0; i < sizeof rev_u.ap / 2u; i++)          /* (int16: 997 of them, an odd count the int32 view misses one of) */
+         rev_u.ap[i] = 0;
++#endif
+     for (i = 0; i < 4u; i++)
+         fx.comb_lp[i] = 0;
+     for (i = 0; i < HL_NL; i++)
+@@ -533,6 +593,7 @@ static int32_t part_buf[CTL];                            /* a part's block (mix_
+ #define SM1_b part_buf
+ #endif
+ 
++#if !FELUCCA_DRUMONLY
+ /* the model changed (to rt): the old one's block fades out (HALL's stereo difference with it), its buffers are
+  * cleared, the new one starts from silence */
+ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t *wet, uint32_t n, int32_t rt)
+@@ -554,6 +615,7 @@ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t
+     rev_clear();
+     fx.rtype = (uint8_t)rt;
+ }
++#endif
+ 
+ /* process the three buses for one block; sends in, wet stereo-equal out */
+ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
+@@ -562,13 +624,17 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
      uint32_t i, dl = delay_samples();
      int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
      int32_t dmix = song.g[G_DMIX] * 258;
@@ -757,7 +874,7 @@ index d2bcf92..c6f7ab4 100644
          /* chorus: modulated short delay, 5..15 ms */
          cho_buf[fx.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
          fx.cho_ph += cinc;
-@@ -580,15 +594,17 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
+@@ -580,15 +646,21 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
              y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
          }
          fx.cho_w++;
@@ -774,10 +891,22 @@ index d2bcf92..c6f7ab4 100644
          wet[i] = y;
      }
 +    fx.tape.m = m1;
++#if FELUCCA_DRUMONLY
++    rev_dfly(rev_in, wet, n);                           /* the Dragonfly Room: the only model */
++    (void)rt;
++#else
      rt = song.g[G_RTYPE];
      rt = rt == 1 || rt == 2 ? rt : 0;
      hl.side = 0;
-@@ -613,6 +629,125 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
+@@ -600,6 +672,7 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
+         rev_spring(rev_in, wet, n);
+     else
+         rev_room(rev_in, wet, n);
++#endif
+ }
+ 
+ /* after the buses: HALL's stereo difference to the left and from the right of the dry mix (the wet bus adds the
+@@ -613,6 +686,125 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
      }
  }
  
@@ -903,7 +1032,7 @@ index d2bcf92..c6f7ab4 100644
  /* INSERT (1.5, Discussions #78 and #177): one effect per track, after DIST and before the SLICER, with a dry / wet
   * MIX. TYPE (P_ITYPE, N_ITYPE; stored, append-only) and its three values A B C (P_IA .. P_IC, what they mean: params.c
   * ins_desc):
-@@ -803,6 +938,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
+@@ -803,6 +995,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
          ins_drive(s, t, b, n, tw);
      t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
  }
@@ -911,7 +1040,7 @@ index d2bcf92..c6f7ab4 100644
  
  /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
   * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-@@ -896,7 +1032,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -896,7 +1089,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
  #endif
          t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                           * voice (the INSERT's: 46 ms, a flanger's feedback) */
@@ -920,7 +1049,7 @@ index d2bcf92..c6f7ab4 100644
          slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
          if (t->ins_run && !t->p[P_ITYPE])
              ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
-@@ -918,7 +1054,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -918,7 +1111,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                                                           * them, no spill in the loop: the ISR's cost as before 1.5) */
          int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
          int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
@@ -929,7 +1058,7 @@ index d2bcf92..c6f7ab4 100644
          int32_t xmax = c > d ? c : d;
          xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
          for (i = 0; i < n; i++) {
-@@ -1072,6 +1208,16 @@ static void mix_block(int32_t *out, uint32_t n)
+@@ -1072,6 +1265,16 @@ static void mix_block(int32_t *out, uint32_t n)
      fx_buses(send_c, send_d, send_r, wet, n);
      if (hl.side)
          rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
@@ -1025,7 +1154,7 @@ index 43fbec7..fbccafd 100644
                                          * levels, SPREAD (#148: continuous, as PAN), 1.5's INSERT (TYPE too: a lock
                                          * switches it for a step, fx.c track_insert fades over), E0..E7) */
 diff --git a/firmware/src/params.c b/firmware/src/params.c
-index 4d00f50..5a0f36c 100644
+index 4d00f50..d1bff7f 100644
 --- a/firmware/src/params.c
 +++ b/firmware/src/params.c
 @@ -58,7 +58,14 @@ static const char *const N_GO[] = {"--", "GO"};
@@ -1103,7 +1232,36 @@ index 4d00f50..5a0f36c 100644
  
  static const param_desc_t GP[G_COUNT] = {
      [G_BPM] = PD("BPM", F_BPM, 40, 240, 120),
-@@ -241,8 +283,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
+@@ -204,8 +246,16 @@ static const param_desc_t GP[G_COUNT] = {
+     [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
+     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
+     [G_DMIX] = PD("MIX", F_PCT, 0, 127, 90),
++#if FELUCCA_DRUMONLY
++    [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 42),                 /* the Dragonfly Room: 8 .. 20 m (42: the Medium Clear Room, 12 m) */
++#else
+     [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
++#endif
++#if FELUCCA_DRUMONLY
++    [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 0),                  /* 10 kHz .. 3 kHz (0: the preset) */
++#else
+     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
++#endif
+     [G_CRATE] = PD("CRT", F_LFOHZ, 0, 127, 40),
+     [G_CDEPTH] = PD("CDP", F_PCT, 0, 127, 60),
+     /* G_MIDI, G_SYNC, G_INFO: the old SYSTEM page's (gone in 1.2), on no page: MIDI's value was never read (its card
+@@ -226,7 +276,11 @@ static const param_desc_t GP[G_COUNT] = {
+     [G_CLRSEQ] = PE("CLRSQ", N_GO, 0),
+     [G_INITSND] = PE("INIT", N_GO, 0),
+     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
++#if FELUCCA_DRUMONLY
++    [G_RTYPE] = PD("DECAY", F_PCT, 0, 127, 20),                /* the Dragonfly Room's RT60 (0.25 .. 5 s; 20: 0.4 s, the preset); a project saved with the old TYPE (0 .. 2) loads as the default */
++#else
+     [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* HALL at power-on since 1.2 (ROOM before; projects keep theirs) */
++#endif
+     /* inert: they set the GM drum part (level, reverb send), which is gone (drums are the DRUM engine
+      * on any part). On no page; kept so the ids and G_COUNT, which the project format and the
+      * editor protocol depend on, do not move */
+@@ -241,8 +295,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
          const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
          return d ? d : &e->edit[id - P_E0];
      }
@@ -1114,7 +1272,7 @@ index 4d00f50..5a0f36c 100644
      if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
          return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
      return &TP[id];
-@@ -262,9 +304,18 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
+@@ -262,9 +316,18 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
   * stands for */
  static int32_t enum_orig(const param_desc_t *d, int32_t v)
  {
@@ -1133,7 +1291,7 @@ index 4d00f50..5a0f36c 100644
  }
  
  /* a stored value as the parameter takes it (projects, user presets, motion): inside d's range, and a retired
-@@ -276,7 +327,7 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
+@@ -276,7 +339,7 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
      v = clamp(v, d->min, d->max);
      if (d->names == N_FM6_PATCH)
          return v > (int32_t)FM6_OWN ? (int32_t)FM6_OWN : v;
@@ -1142,7 +1300,7 @@ index 4d00f50..5a0f36c 100644
  }
  
  /* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice */
-@@ -443,7 +494,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
+@@ -443,7 +506,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
  /* ------------------------------------------------------------ pages --- */
  enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
         FAM_COUNT };
@@ -1151,7 +1309,7 @@ index 4d00f50..5a0f36c 100644
  enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
         GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
         GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
-@@ -462,10 +513,20 @@ static const page_t PAGES[] = {
+@@ -462,10 +525,20 @@ static const page_t PAGES[] = {
      {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
      {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
      {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
@@ -1173,7 +1331,7 @@ index 4d00f50..5a0f36c 100644
      {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
      {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING / HALL */
      {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
-@@ -528,6 +589,13 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
+@@ -528,6 +601,13 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
          *valp = &song.g[id];
          return &GP[id];
      }

@@ -20,8 +20,8 @@ TMP = Path(tempfile.mkdtemp())
 subprocess.run(["cc", "-O2", "-o", str(TMP / "dfx"), str(ROOT / "tests/dfly_host.c"), "-lm"], check=True)
 subprocess.run(["cc", "-O2", "-DDFR_MAIN", "-o", str(TMP / "dfc"), str(ROOT / "tools/fxlab/dfroom_float.c"), "-lm"], check=True)
 FS = 22050
-# the Medium Clear Room's knobs: SIZE 12 m, DECAY 0.4 s, DAMP 0 (the early reflections 10.6 kHz, the late 9.4 kHz as in the preset)
-MEDIUM = (32, 20, 0)
+# the Medium Clear Room's knobs: SIZE 12 m (knob 42 of 127: 8 .. 20 m), DECAY 0.4 s, DAMP 0 (the early reflections 10.6 kHz, the late 9.4 kHz as in the preset)
+MEDIUM = (42, 20, 0)
 
 
 def fixed(size, decay, damp):
@@ -75,11 +75,11 @@ class DflyRoom(unittest.TestCase):
         def t20(x):
             e = edc(x[:, 2])
             return int(np.argmax(e < -20)) / FS
-        short, long_ = fixed(32, 5, 0)[0], fixed(32, 60, 0)[0]
+        short, long_ = fixed(42, 5, 0)[0], fixed(42, 60, 0)[0]
         self.assertLess(t20(short), t20(long_))
         small, big = fixed(0, 20, 0)[0], fixed(127, 20, 0)[0]
         self.assertLess(int(np.argmax(abs(small[:, 0]) > 0.01)), int(np.argmax(abs(big[:, 0]) > 0.01)) + 1)   # the first reflection comes later
-        bright, dark = fixed(32, 20, 0)[0], fixed(32, 20, 127)[0]
+        bright, dark = fixed(42, 20, 0)[0], fixed(42, 20, 127)[0]
         # the damping filters sit in front of the tank: what they take is the highs of the first, direct echoes (the tail is mostly the bass-boosted loop)
         tilt = lambda x: band(x[:, 2], 3000, 8000) - band(x[:, 2], 300, 1000)
         self.assertGreater(tilt(bright), tilt(dark) + 3.0)

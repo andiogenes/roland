@@ -15,7 +15,7 @@
 #include "fx_comp.c"
 #include "fx_dfly_tab.h"
 
-#define DFR_POOL 52800                      /* int16 samples: SIZE up to 24 m (gen_dfly_tab: 52 800 at 24) */
+#define DFR_POOL 44280                      /* int16 samples: SIZE up to 20 m (44 271 at 20; the pool of the FM-1 has 368 640 bytes in all) */
 
 typedef struct { int16_t *b; uint16_t n, i; } dfd_t;                                  /* a delay or an all-pass buffer */
 typedef struct { int16_t *b; uint16_t n, rd, wr, modn; int32_t fb, dec, z1; } dfm_t;   /* modulated all-pass */
@@ -34,7 +34,7 @@ static int16_t dfr_pool[DFR_POOL] __attribute__((section(".pool")));
 static struct {
     int16_t *p;                              /* the next free sample of the pool */
     uint8_t ok;                              /* set up (and for which SIZE: sz) */
-    int32_t sz, rt, dp;                      /* the knobs last set up for: SIZE, DECAY, DAMP */
+    int32_t sz, rt, dp, rs_q8;               /* the knobs last set up for: SIZE, DECAY, DAMP; SIZE / 10 in Q8 */
     /* early reflections */
     dfd_t lineL, lineR, ltr, rtl;
     uint16_t nt, tapL[6], tapR[6];
@@ -249,23 +249,43 @@ static void dfr_decays(int32_t rt_q8, int32_t rs_q8, int32_t *dl0, int32_t *d1, 
     *d3 = (int32_t)cm_exp2(e);
 }
 
-/* (re)build: SIZE 0 .. 127 -> 8 .. 24 m, DECAY 0 .. 127 -> 0.25 .. 5 s (log), DAMP 0 .. 127 */
+static void dfr_damp(int32_t damp);
+
+/* DECAY 0 .. 127 -> RT60 0.25 .. 5 s (20 ^ (v / 127) x 0.25): the decay factors of every all-pass and the loop, and the bass boost
+ * (boost 50 / 20 / decay^1.5 * size / 10): no re-allocation, only coefficients */
+static void dfr_tune(int32_t decay)
+{
+    int32_t rt_q8 = (int32_t)((cm_exp2(clamp(decay, 0, 127) * 2230) * 64u) >> 15), dl0, d1, d2, d3;   /* 2^(v 4.32 / 127) = 20^(v / 127); x 64 = 0.25 s, Q8 */
+    int32_t lg, p15, b;
+    if (rt_q8 < 64)
+        rt_q8 = 64;
+    dfr_decays(rt_q8, dfr.rs_q8, &dl0, &d1, &d2, &d3);
+    dfr.loopdecay = dl0;
+    dfr.m15.dec = dfr.m19.dec = d2;
+    dfr.m17.dec = dfr.m21.dec = d3;
+    dfr.a2L25.d1 = dfr.a2R43.d1 = (int16_t)d1; dfr.a2L25.d2 = dfr.a2R43.d2 = (int16_t)d2;
+    dfr.a3L34.d1 = dfr.a3R52.d1 = dfr.a3L34.d2 = dfr.a3R52.d2 = (int16_t)d1; dfr.a3L34.d3 = dfr.a3R52.d3 = (int16_t)d2;
+    lg = cm_log2((uint32_t)rt_q8) - (8 << 16);                          /* log2(decay) Q16 */
+    p15 = (int32_t)cm_exp2(-(lg * 3) / 2);                              /* decay^-1.5, Q15 */
+    b = (int32_t)(((uint32_t)p15 * 640u) >> 15);                        /* 2.5 x 256: Q8 */
+    dfr.bassb = clamp((b * dfr.rs_q8) >> 8, 0, 20000);
+    dfr.rt = decay;
+}
+
+/* (re)build: SIZE 0 .. 127 -> 8 .. 20 m, DECAY 0 .. 127 -> 0.25 .. 5 s (log), DAMP 0 .. 127 */
 static void dfr_setup(int32_t size, int32_t decay, int32_t damp)
 {
-    int32_t m = 80 + (clamp(size, 0, 127) * 160) / 127;                      /* size in m x 10: 80 .. 240 */
+    int32_t m = 80 + (clamp(size, 0, 127) * 40) / 42;                       /* size in m x 10: 80 .. 200 (SIZE 42 is 12 m, the preset; the top is held at 20 m) */
+    if (m > 200)
+        m = 200;
     int32_t rs_q8 = (m * 256) / 100;                                        /* RS = size / 10, Q8 */
-    int32_t rt_q8, dl0, d1, d2, d3, i;
+    int32_t i;
     uint32_t tf, ex;
     const uint32_t FSQ = 22050u;
     tf = (uint32_t)(((FSQ * (uint32_t)rs_q8) << 8) / 34125u);               /* fs * RS / 34125, Q16 */
     ex = (uint32_t)((FSQ << 16) / 34125u);
     dfr.p = dfr_pool;
-    /* DECAY: 0.25 s * 20 ^ (v / 127), in Q8: the exponential by cm_exp2 */
-    rt_q8 = (int32_t)((cm_exp2(clamp(decay, 0, 127) * 2230) * 64u) >> 15);   /* 2^(v * 4.32 / 127) = 20 ^ (v / 127): Q16 octaves 2230 a step; x 64 = 0.25 s in Q8 */
-    if (rt_q8 < 64)
-        rt_q8 = 64;
-    dfr_decays(rt_q8, rs_q8, &dl0, &d1, &d2, &d3);
-    dfr.loopdecay = dl0;
+    dfr.rs_q8 = rs_q8;
     /* the early reflections */
     {
         static const uint16_t DL[6] = {199, 354, 389, 414, 699, 796}, DR[6] = {209, 364, 399, 424, 709, 806};   /* ms x 10 */
@@ -288,10 +308,10 @@ static void dfr_setup(int32_t size, int32_t decay, int32_t damp)
         dfr_ap(&dfr.caL[i], dfr_pp(DFR_CAL[i], tf));
         dfr_ap(&dfr.caR[i], dfr_pp(DFR_CAR[i], tf));
     }
-    dfr_apm(&dfr.m15, dfr_pp(DFR_ALC[0], tf), dfr_pp(32u, ex), 12288, d2);   /* diffusion 1: 0.375 */
-    dfr_apm(&dfr.m17, dfr_pp(DFR_ALC[1], tf), dfr_pp(32u, ex), 10223, d3);   /* diffusion 2: 0.312 */
-    dfr_apm(&dfr.m19, dfr_pp(DFR_ARC[0], tf), dfr_pp(32u, ex), 12288, d2);
-    dfr_apm(&dfr.m21, dfr_pp(DFR_ARC[1], tf), dfr_pp(32u, ex), 10223, d3);
+    dfr_apm(&dfr.m15, dfr_pp(DFR_ALC[0], tf), dfr_pp(32u, ex), 12288, 32768);   /* diffusion 1: 0.375 */
+    dfr_apm(&dfr.m17, dfr_pp(DFR_ALC[1], tf), dfr_pp(32u, ex), 10223, 32768);   /* diffusion 2: 0.312 */
+    dfr_apm(&dfr.m19, dfr_pp(DFR_ARC[0], tf), dfr_pp(32u, ex), 12288, 32768);
+    dfr_apm(&dfr.m21, dfr_pp(DFR_ARC[1], tf), dfr_pp(32u, ex), 10223, 32768);
     {
         dfa2_t *a[2] = {&dfr.a2L25, &dfr.a2R43};
         const uint16_t *c[2] = {DFR_ALC, DFR_ARC};
@@ -300,12 +320,12 @@ static void dfr_setup(int32_t size, int32_t decay, int32_t damp)
         for (k = 0; k < 2u; k++) {
             uint32_t n1 = dfr_pp(c[k][4], tf), m1 = dfr_pp(c[k][5], tf);
             dfr_ap(&a[k]->a1, dfr_pp(c[k][2], tf)); dfr_ap(&a[k]->a2, dfr_pp(c[k][3], tf));
-            a[k]->f1 = 8192; a[k]->f2 = 13312; a[k]->d1 = (int16_t)d1; a[k]->d2 = (int16_t)d2;   /* diffusion 4: 0.25; 3: 0.406 */
+            a[k]->f1 = 8192; a[k]->f2 = 13312;   /* diffusion 4: 0.25; 3: 0.406 */
             if (m1 > n1) m1 = n1;
             b[k]->n1 = (uint16_t)(n1 + m1); b[k]->modn = (uint16_t)m1; b[k]->n2 = (uint16_t)dfr_pp(c[k][6], tf); b[k]->n3 = (uint16_t)dfr_pp(c[k][7], tf);
             b[k]->b1 = dfr_take(b[k]->n1); b[k]->b2 = dfr_take(b[k]->n2); b[k]->b3 = dfr_take(b[k]->n3);
             b[k]->rd1 = (uint16_t)(m1 * 2u); b[k]->wr1 = 0; b[k]->i2 = b[k]->i3 = 0;
-            b[k]->f1 = 8192; b[k]->f2 = 8192; b[k]->f3 = 13312; b[k]->d1 = (int16_t)d1; b[k]->d2 = (int16_t)d1; b[k]->d3 = (int16_t)d2;
+            b[k]->f1 = 8192; b[k]->f2 = 8192; b[k]->f3 = 13312;
         }
     }
     dfr_dly(&dfr.d16, dfr_pp(2u, tf)); dfr_dly(&dfr.d23, dfr_pp(1055u, tf)); dfr_dly(&dfr.d31, dfr_pp(344u, tf)); dfr_dly(&dfr.d37, dfr_pp(1572u, tf));
@@ -316,15 +336,9 @@ static void dfr_setup(int32_t size, int32_t decay, int32_t damp)
         dfr.iOut2[i] = (uint16_t)dfr_pf(DFR_OUTC2[i], tf);
     dfr_dly(&dfr.outL, dfr_pp(22u, (FSQ << 16) / 1000u)); dfr_dly(&dfr.outR, dfr_pp(22u, (FSQ << 16) / 1000u));
     dfr_dly(&dfr.predL, 176u); dfr_dly(&dfr.predR, 176u);                   /* 8 ms */
-    /* the bass boost: boost 50 / 20 / decay^1.5 * size / 10 (Q8, clamped) */
-    {
-        int32_t lg = cm_log2((uint32_t)rt_q8) - (8 << 16);                  /* log2(decay) Q16 */
-        int32_t p15 = (int32_t)cm_exp2(-(lg * 3) / 2);                      /* decay^-1.5, Q15 */
-        int32_t b = (int32_t)(((uint32_t)p15 * 640u) >> 15);                /* 2.5 * 256 = 640: Q8 */
-        b = (b * rs_q8) >> 8;
-        dfr.bassb = clamp(b, 0, 20000);
-    }
-    dfr.sz = size; dfr.rt = decay; dfr.dp = damp; dfr.ok = 1;
+    dfr.sz = size; dfr.ok = 1;
+    dfr_tune(decay);
+    dfr_damp(damp);
     dfr.ph1 = dfr.ph2 = 0; dfr.noise = 0; dfr.xp = 0; dfr.ml = dfr.ms = 0;
     dfr.lpfLin.y1 = dfr.lpfRin.y1 = dfr.lpfLd.y1 = dfr.lpfRd.y1 = dfr.lfo1l.y1 = dfr.lfo2l.y1 = dfr.eoL.y1 = dfr.eoR.y1 = 0;
     dfr.dcL[0] = dfr.dcL[1] = dfr.dcR[0] = dfr.dcR[1] = 0;
