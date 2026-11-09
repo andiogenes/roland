@@ -6,13 +6,13 @@ machine.*
 Drum-only firmware for the M-VAVE FM-1, built on [Felucca](https://github.com/hugelton/Felucca) (GPL-3.0-only). It keeps
 Felucca's drum engine and its sequencer and offers nothing else: four drum tracks, each with its own pattern, and a choice of
 
-* **synthesized kits** (Felucca's own DRUM engine: DRUM, DEEP, TIGHT, PERC and the 80 / 10 / 66 / 55 / 77 machine kits), and
+* **synthesized kits** (Felucca's own DRUM engine: DRUM, DEEP, TIGHT, PERC and the 80 / 10 / 66 / 55 / 77 machine kits),
 * **a TR-606 kit** (`TR606`), SLOOP's synthesized TR-606,
 * **SLOOP's acoustic drum set** (`ACOUS`, `AC-DP`, `AC-TI`, `AC-BR`, `AC-DU`): real drum recordings in five treatments, and
 * **Alesis HR-16B sample kits** (`HR-A`, `HR-B`, ...), built from the WAV files of the
   [Cluster Sound HR-16B freebie](https://clustersound.com/product/freebies/hr-16b/).
 
-Both kinds are KIT values of the same DRUM engine, so they share the 8-lane grid (KICK SNARE CLAP HATCL HATOP TOM RIM
+All of them are KIT values of the same DRUM engine, so they share the 8-lane grid (KICK SNARE CLAP HATCL HATOP TOM RIM
 BELL), the lane mutes and levels, ratchets, chance, conditions, parameter locks, song chaining and MIDI. Any track can
 use any kit, so a synthesized kick can play under HR-16 hats.
 
