@@ -132,6 +132,21 @@ int main(int argc, char **argv)
         printf("COMP on TR606: peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
         memset(ins_cfg, 0, sizeof ins_cfg);
     }
+    {   /* the INSERT's ROT on the TR606 kit: wow 60, dropouts 40, loss 70, hiss 50, drive 30 */
+        static const int16_t C[6] = {IT_ROT, 60, 40, 70, 50, 30};
+        double rms;
+        uint32_t clips;
+        int32_t peak;
+        FILE *f;
+        memcpy(ins_cfg, C, sizeof ins_cfg);
+        snprintf(path, sizeof path, "%s/insert_rot_TR606.wav", dir);
+        f = fopen(path, "wb");
+        wav_hdr(f, FS * 5u);
+        peak = play_kit(DK_606, f, &rms, &clips);
+        fclose(f);
+        printf("ROT on TR606: peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
+        memset(ins_cfg, 0, sizeof ins_cfg);
+    }
     {   /* the delay as a tape echo: send 80, the delay's own defaults (FDBK 60 %, COLR 70, MIX 90) */
         double rms;
         uint32_t clips;

@@ -46,9 +46,9 @@ Image.open(shots / "GREY_grid_TR606.png").resize((720, 720), Image.NEAREST).save
 Image.open(shots / "GREY_kit_ACOUS.png").resize((720, 720), Image.NEAREST).save(out / "screen_kit_big.png")
 
 # the INSERT's four devices (ui_faces.c): page 1 and page 2 of each, in colour (NIGHT), then big
-devs = ["COMP", "PRE", "HARM", "METAL"]
+devs = ["COMP", "PRE", "HARM", "METAL", "ROT"]
 if all((shots / f"NIGHT_insert1_{d}.png").exists() for d in devs):
-    img = Image.new("RGB", (240 * 4 + 24, 2 * 256), (24, 24, 24))
+    img = Image.new("RGB", (240 * 5 + 32, 2 * 256), (24, 24, 24))
     dr = ImageDraw.Draw(img)
     for i, d in enumerate(devs):
         for pg in (1, 2):

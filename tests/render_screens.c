@@ -32,11 +32,11 @@ int main(int argc, char **argv)
         }
     }
     {   /* the INSERT's four devices (ui_faces.c), each with its two pages: values turned away from their defaults */
-        static const struct { const char *name; int16_t v[5]; } DEV[4] = {
+        static const struct { const char *name; int16_t v[5]; } DEV[5] = {
             {"COMP", {80, 100, 20, 90, 2}}, {"PRE", {100, 90, 24, -20, 1}},
-            {"HARM", {100, 70, 2, 0, 0}}, {"METAL", {90, -30, 25, 110, 0}}};
+            {"HARM", {100, 70, 2, 0, 0}}, {"METAL", {90, -30, 25, 110, 0}}, {"ROT", {60, 30, 70, 40, 25}}};
         uint32_t d, pi, q;
-        for (d = 0; d < 4u; d++)
+        for (d = 0; d < 5u; d++)
             for (pi = 0; pi < 2u; pi++) {
                 setup(S_DRUM);
                 trk[3].p[P_ITYPE] = (int16_t)(d + 1u);

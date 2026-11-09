@@ -7,6 +7,7 @@
  *   PRE     the Surveyor-style pedal (the Intersound preamp's family): LEVEL GAIN BASS TREBLE and the HI / LO switch
  *   HARM    the Harmonic Percolator: two sliders, HARMONICS and BALANCE, and the clipping MODE
  *   METAL   the HM-2 pedal: LEVEL, the two COLOR MIX knobs LOW and HIGH, DIST
+ *   ROT     a reel-to-reel deck: two reels, the head block and five knobs, WOW DROP LOSS HISS DRIVE
  *
  * The bodies keep the devices' own colours on every palette (they are pictures of boxes); only what the knobs are doing now
  * is the palette's: a ring (T_ACCENT) round the controls the open page edits. No maker's name or logo is drawn. The values
@@ -42,6 +43,8 @@ static uint16_t fc_px(uint16_t c)
 #define FC_BROWN    fc_px(RGB(116, 90, 58))
 #define FC_ORANGE   fc_px(RGB(240, 132, 28))
 #define FC_BLACK    fc_px(RGB(22, 22, 26))
+#define FC_DECK     fc_px(RGB(62, 68, 60))
+#define FC_TAPE     fc_px(RGB(96, 56, 36))
 
 static int32_t fc_sin(int32_t deg) { return osc_sine((uint32_t)(deg * 11930465)); }   /* Q15; 2^32 / 360 */
 static int32_t fc_cos(int32_t deg) { return osc_sine((uint32_t)(deg * 11930465) + 0x40000000u); }
@@ -240,6 +243,35 @@ static void face_metal(const track_t *t, const page_t *pg)
     fc_label(FC_X + 70, FC_Y + 72, 80, 12, "COLOR MIX", FC_ORANGE, FC_BLACK);
 }
 
+/* ROT: WOW A, DROP B, LOSS C, HISS D, DRIVE E (a deck's front: the reels over the head block, five knobs under) */
+static void face_rot(const track_t *t, const page_t *pg)
+{
+    static const char *const K[5] = {"WOW", "DROP", "LOSS", "HISS", "DRIVE"};
+    static const uint8_t ID[5] = {P_IA, P_IB, P_IC, P_ID, P_IE};
+    int32_t i, r, spin = song.playing ? (int32_t)((ui.frame * 3u) % 120u) : 0;   /* (the reels turn while the song plays) */
+    cv_rrect(FC_X, FC_Y, FC_W, FC_H, 4, FC_DECK, T_SURF);
+    for (r = 0; r < 2; r++) {                              /* the reels: a disc of tape, a silver flange, three spokes */
+        int32_t cx = FC_X + (r ? 156 : 64), cy = FC_Y + 27;
+        fc_disc(cx, cy, 21, FC_TAPE, FC_DECK);
+        fc_disc(cx, cy, 17, FC_CHROME, FC_TAPE);
+        fc_disc(cx, cy, 13, FC_DECK, FC_CHROME);
+        for (i = 0; i < 3; i++) {
+            int32_t d = spin + i * 120;
+            cv_line_t(cx, cy, cx + (fc_sin(d) * 13 >> 15), cy - (fc_cos(d) * 13 >> 15), FC_CHROME, 2);
+        }
+        fc_disc(cx, cy, 4, FC_CHROME, FC_DECK);
+    }
+    cv_line(FC_X + 64, FC_Y + 48, FC_X + 100, FC_Y + 44, FC_TAPE);                 /* the tape's path past the head block */
+    cv_line(FC_X + 100, FC_Y + 44, FC_X + 120, FC_Y + 44, FC_TAPE);
+    cv_line(FC_X + 120, FC_Y + 44, FC_X + 156, FC_Y + 48, FC_TAPE);
+    cv_rrect(FC_X + 100, FC_Y + 38, 20, 6, 2, FC_SILVER_D, FC_DECK);
+    for (i = 0; i < 5; i++) {
+        int32_t cx = FC_X + 22 + i * 44;
+        fc_knob(cx, FC_Y + 64, 8, t->p[ID[i]], FC_CREAM, 0, FC_INK, FC_DECK, fc_on(pg, ID[i]));
+        fc_label(cx - 21, FC_Y + 74, 42, 11, K[i], FC_CREAM, FC_DECK);
+    }
+}
+
 static void graph_insert_face(const track_t *t, uint16_t c)
 {
     const page_t *pg = cur_page();
@@ -255,6 +287,9 @@ static void graph_insert_face(const track_t *t, uint16_t c)
         break;
     case IT_METAL:
         face_metal(t, pg);
+        break;
+    case IT_ROT:
+        face_rot(t, pg);
         break;
     default:                                              /* OFF: the dry line, dim */
         cv_line_t(PANEL_X0 + PANEL_W / 6, FC_Y + FC_H - 12, PANEL_X0 + PANEL_W * 5 / 6, FC_Y + 12, T_RAISE, 2);

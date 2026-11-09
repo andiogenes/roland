@@ -40,6 +40,7 @@ the download or "view raw" button. All mono mp3.
 | `DEEP` `TIGHT` `PERC` | Felucca's kits put together from the model kits' pieces | [DEEP](docs/audio/kit_09_DEEP.mp3) · [TIGHT](docs/audio/kit_10_TIGHT.mp3) · [PERC](docs/audio/kit_11_PERC.mp3) |
 | `TR606` | SLOOP's synthesized TR-606 (hats of about 35 and 220 ms, a crash of about 0.7 s) | [kit_12_TR606.mp3](docs/audio/kit_12_TR606.mp3) |
 | `TR606` + COMP | the same beat through the INSERT's COMP (INPUT 100, OUT 80, fast attack, 12:1): level pulled together, the clicks of the kick and hats still get through | [insert_comp_TR606.mp3](docs/audio/insert_comp_TR606.mp3) |
+| `TR606` + ROT | the same beat through the INSERT's ROT (wow 60, dropouts 40, loss 70, hiss 50, drive 30): a worn tape | [insert_rot_TR606.mp3](docs/audio/insert_rot_TR606.mp3) |
 | `TR606` + tape delay | the same beat with the delay send up (80): the repeats wobble a little in pitch, darken and soften as they go round | [insert_tape_delay_TR606.mp3](docs/audio/insert_tape_delay_TR606.mp3) |
 | `ACOUS` | SLOOP's acoustic kit as recorded | [kit_13_ACOUS.mp3](docs/audio/kit_13_ACOUS.mp3) |
 | `AC-DP` | the same, pitched down and softened | [kit_14_AC-DP.mp3](docs/audio/kit_14_AC-DP.mp3) |
@@ -65,10 +66,10 @@ is the track's preset, and the host render sets the kit directly.</sub></p>
 <p align="center"><img src="docs/host-render/screens_new_kits.png" alt="Grid, KIT and HIT pages of four of the new kits" width="720"></p>
 <p align="center"><sub>The grid, KIT and HIT pages for TR606, ACOUS, AC-DU and HR-A: the new kit names fit the screen.</sub></p>
 
-## The INSERT's four devices
+## The INSERT's devices
 
 <p align="center"><img src="docs/host-render/screens_insert.png" alt="The INSERT page for the four devices, pages 1 and 2" width="720"></p>
-<p align="center"><sub>Top row: the INSERT page of COMP, PRE, HARM and METAL. Bottom row: INSERT 2 (the fourth and fifth control, and
+<p align="center"><sub>Top row: the INSERT page of COMP, PRE, HARM, METAL and ROT. Bottom row: INSERT 2 (the fourth and fifth control, and
 MIX). The ring marks the controls the open page turns. The bodies keep the devices' paint on every colour palette, and turn
 to their grays on GREY and MONO.</sub></p>
 
@@ -81,9 +82,10 @@ values (`overlay/firmware/src/ui_faces.c`; no maker's name or logo is drawn):
 | PRE | the Surveyor-style preamp pedal (the Intersound preamp's family) | LEVEL, GAIN, BASS, TREBLE (cut / boost around noon), HI / LO switch |
 | HARM | the Harmonic Percolator | HARMONICS and BALANCE sliders, MODE (GE, OFF, SI: the clipping diodes) |
 | METAL | the HM-2 | LEVEL, LOW and HIGH (the COLOR MIX pair, around noon), DIST |
+| ROT | a worn reel-to-reel tape | WOW, DROP (dropouts), LOSS (lost highs), HISS, DRIVE; the reels turn while the song plays |
 
 INSERT has the values A to E (`P_IA .. P_IC`, and the two the drum machine added, `P_ID` and `P_IE`); a type names the ones it
-has and shows "-" for the rest. **COMP works now (step 3: a fixed-point peak compressor in the log domain, `overlay/firmware/src/fx_comp.c`, checked by `tests/test_comp.py`: the static curve within 1.2 dB, the attack and release times, the ratios), and its meter moves. PRE, HARM and METAL are pictures so far: their signal processing follows in step 4 of [the FX plan](docs/FX-PLAN.md), and until then those types pass the sound unchanged.** Projects and presets that were
+has and shows "-" for the rest. **COMP and ROT work now (step 3: a fixed-point peak compressor in the log domain, `overlay/firmware/src/fx_comp.c`, checked by `tests/test_comp.py`: the static curve within 1.2 dB, the attack and release times, the ratios; ROT in `fx_rot.c`, checked by `tests/test_rot.py`), and COMP's meter moves. PRE, HARM and METAL are pictures so far: their signal processing follows in step 4 of [the FX plan](docs/FX-PLAN.md), and until then those types pass the sound unchanged.** Projects and presets that were
 saved before load with D 64 and E 0 (the format maps by count, no version change).
 
 ## Status: read this first
