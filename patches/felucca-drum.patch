@@ -649,7 +649,7 @@ index 579413a..3646e7e 100644
  
  /* ------------------------------------------------- MIDI, sequencer --- */
 diff --git a/firmware/src/fx.c b/firmware/src/fx.c
-index d2bcf92..ceecc6f 100644
+index d2bcf92..16d8639 100644
 --- a/firmware/src/fx.c
 +++ b/firmware/src/fx.c
 @@ -5,7 +5,9 @@
@@ -731,20 +731,21 @@ index d2bcf92..ceecc6f 100644
      rt = song.g[G_RTYPE];
      rt = rt == 1 || rt == 2 ? rt : 0;
      hl.side = 0;
-@@ -613,6 +629,81 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
+@@ -613,6 +629,92 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
      }
  }
  
 +#if FELUCCA_DRUMONLY
 +/* INSERT: one effect per track, after the voices and before the level, pan and sends, with a dry / wet MIX (parallel
 + * compression on COMP). The old types (the drives, CRUSH, the phaser, flanger and chorus) are gone; the pool of devices
-+ * (docs/FX-PLAN.md) comes here: COMP (fx_comp.c), ROT (fx_rot.c) and METAL (fx_hm2.c) run; PRE and HARM pass the sound until their steps. MIX glides
++ * (docs/FX-PLAN.md) comes here: COMP (fx_comp.c), ROT (fx_rot.c), METAL (fx_hm2.c) and HARM (fx_perc.c) run; PRE passes the sound until their steps. MIX glides
 + * (2.9 ms), a TYPE change fades the old one out, clears the state and fades the new one in, as before. State in the pool,
 + * per track. */
 +enum { IT_OFF, IT_COMP, IT_PRE, IT_HARM, IT_METAL, IT_ROT, IT_N };
 +#include "fx_comp.c"
 +#include "fx_rot.c"
 +#include "fx_hm2.c"
++#include "fx_perc.c"
 +typedef struct {
 +    int32_t w;                          /* the wet share now, Q15 */
 +    uint8_t type;                       /* the type running */
@@ -752,6 +753,7 @@ index d2bcf92..ceecc6f 100644
 +    comp_t comp;
 +    rot_t rot;                          /* ROT: the line, the wander, the dropout, the filters */
 +    hm2_t hm2;                          /* METAL */
++    perc_t perc;                        /* HARM */
 +} ins_t;
 +static ins_t ins[NTRK] __attribute__((section(".pool")));
 +static inline int32_t ins_mixq(int32_t m) { return m >= 127 ? 32768 : m <= 0 ? 0 : m * 258; }   /* MIX -> Q15 */
@@ -766,7 +768,7 @@ index d2bcf92..ceecc6f 100644
 +    int32_t ty = clamp(t->p[P_ITYPE], 0, IT_N - 1), tw;
 +    if (s->type != ty && !s->w)                         /* faded out: the new type from rest */
 +        s->type = (uint8_t)ty;
-+    tw = s->type == ty && (ty == IT_COMP || ty == IT_ROT || ty == IT_METAL) ? ins_mixq(t->p[P_IMIX]) : 0;
++    tw = s->type == ty && (ty == IT_COMP || ty == IT_ROT || ty == IT_METAL || ty == IT_HARM) ? ins_mixq(t->p[P_IMIX]) : 0;
 +    if (!s->w) {
 +        if (!tw) {
 +            t->ins_run = 0;
@@ -784,6 +786,15 @@ index d2bcf92..ceecc6f 100644
 +        for (i = 0; i < (int32_t)m; i++) {
 +            s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
 +            b[i] = pf_mix(dry[i], b[i], s->w);
++        }
++    } else if (s->type == IT_HARM) {
++        perc_k_t k;
++        uint32_t i;
++        perc_coefs(&k, t->p[P_IA], t->p[P_IB], t->p[P_IC]);                /* HARMONICS, BALANCE, MODE */
++        for (i = 0; i < n; i++) {
++            int32_t x = b[i];
++            s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
++            b[i] = pf_mix(x, perc_one(&s->perc, &k, x), s->w);
 +        }
 +    } else if (s->type == IT_METAL) {
 +        hm2_k_t k;
@@ -813,7 +824,7 @@ index d2bcf92..ceecc6f 100644
  /* INSERT (1.5, Discussions #78 and #177): one effect per track, after DIST and before the SLICER, with a dry / wet
   * MIX. TYPE (P_ITYPE, N_ITYPE; stored, append-only) and its three values A B C (P_IA .. P_IC, what they mean: params.c
   * ins_desc):
-@@ -803,6 +894,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
+@@ -803,6 +905,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
          ins_drive(s, t, b, n, tw);
      t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
  }
@@ -821,7 +832,7 @@ index d2bcf92..ceecc6f 100644
  
  /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
   * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-@@ -896,7 +988,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -896,7 +999,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
  #endif
          t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                           * voice (the INSERT's: 46 ms, a flanger's feedback) */
@@ -830,7 +841,7 @@ index d2bcf92..ceecc6f 100644
          slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
          if (t->ins_run && !t->p[P_ITYPE])
              ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
-@@ -918,7 +1010,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -918,7 +1021,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                                                           * them, no spill in the loop: the ISR's cost as before 1.5) */
          int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
          int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
