@@ -3,6 +3,10 @@
 *The name is a nod to Steve Albini's Big Black, whose records credit their drummer as "Roland": a Roland TR-606 drum
 machine.*
 
+*(Steve Albini would hate this, of course. It has presets, a software update and a README with pictures. We like to think he
+would at least have approved of the drummer's reliability: never late, never drunk, never asks for a bigger monitor mix. And
+there isn't a single microphone in it to have an opinion about.)*
+
 <p align="center"><img src="docs/host-render/screens_palettes.png" alt="The drum grid in the five colour schemes" width="100%"></p>
 <p align="center"><sub>The 8-lane drum grid on a TR-606 kit, drawn by the firmware's own UI code in its five colour schemes
 (host render: the real screen code on a test display, not a photo of the FM-1).</sub></p>
