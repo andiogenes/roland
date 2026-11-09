@@ -1,0 +1,111 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* Renders every DRUM kit of the drum machine build through the real firmware sources (Felucca's tests/hostsim.c includes
+ * the engines, voices, FX and sequencer) to WAV files: a two-bar GM beat on part 4, each kit alone, then all of them in one
+ * file. Built by tests/host_render.sh.
+ *   render_kits OUTDIR          prints per kit: index, name, peak, RMS, clipped samples */
+#define main hostsim_main
+#include "hostsim.c"
+#undef main
+
+#define SIXTEENTH (FS / 8u)         /* 120 BPM: 125 ms */
+/* the beat: per 16th up to four GM notes (0 ends the list). Bar 1 / bar 2 */
+static const uint8_t BEAT[32][4] = {
+    {36, 42, 0}, {0}, {42, 0}, {37, 0},  {38, 42, 0}, {0}, {42, 0}, {45, 0},
+    {36, 42, 0}, {0}, {36, 42, 0}, {41, 0}, {38, 39, 42, 0}, {0}, {46, 0}, {56, 0},
+    {36, 49, 0}, {0}, {42, 0}, {42, 0}, {38, 42, 0}, {0}, {42, 0}, {47, 0},
+    {36, 42, 0}, {0}, {36, 42, 0}, {37, 0}, {38, 39, 0}, {43, 0}, {46, 0}, {48, 0},
+};
+
+static const char *kit_name(uint32_t k)
+{
+    const param_desc_t *d = &ENG_DRUM.edit[0];
+    return d->names[k];
+}
+
+/* one kit, `bars` of the beat on part 4 into f (NULL: not written); returns the peak, fills rms and clips */
+static int32_t play_kit(uint32_t kit, FILE *f, double *rms, uint32_t *clips)
+{
+    uint32_t i, frames = FS * 4u + FS, step = 0, fr;
+    int32_t peak = 0;
+    double acc = 0;
+    uint64_t n = 0;
+    uint8_t held[4] = {0}, nheld = 0;
+    host_tracks_init();
+    host_drums(&trk[3]);
+    trk[3].p[P_E0] = (int16_t)kit;
+    for (i = 0; i < 3; i++)                           /* the other parts silent */
+        trk[i].p[P_LEVEL] = 0;
+    song.master_q12 = 4096;
+    *clips = 0;
+    for (fr = 0; fr < frames; fr += CTL) {
+        int32_t o[2 * CTL];
+        if (fr % SIXTEENTH < CTL && step < 32u && fr / SIXTEENTH == step) {
+            for (i = 0; i < nheld; i++)
+                trk_note_off(&trk[3], held[i]);
+            nheld = 0;
+            for (i = 0; i < 4u && BEAT[step][i]; i++) {
+                trk_note_on(&trk[3], BEAT[step][i], 100);
+                held[nheld++] = BEAT[step][i];
+            }
+            step++;
+        }
+        mix_block(o, CTL);
+        for (i = 0; i < 2 * CTL; i++) {
+            int32_t s = o[i];
+            if (s > 32767 || s < -32768)
+                (*clips)++;
+            s = s > 32767 ? 32767 : s < -32768 ? -32768 : s;
+            if (s > peak) peak = s;
+            if (-s > peak) peak = -s;
+            acc += (double)s * s;
+            n++;
+            if (f) {
+                int16_t v = (int16_t)s;
+                fwrite(&v, 2, 1, f);
+            }
+        }
+    }
+    *rms = sqrt(acc / (double)n);
+    return peak;
+}
+
+int main(int argc, char **argv)
+{
+    const char *dir = argc > 1 ? argv[1] : ".";
+    char path[512];
+    uint32_t k, shown = 0;
+    FILE *all;
+    snprintf(path, sizeof path, "%s/all_kits.wav", dir);
+    all = fopen(path, "wb");
+    if (!all)
+        return 1;
+    wav_hdr(all, 0);                                  /* (the sizes are patched below) */
+    printf("kits: %u (DK_COUNT)\n", (unsigned)DK_COUNT);
+    for (k = 0; k < DK_COUNT; k++) {
+        double rms;
+        uint32_t clips;
+        int32_t peak;
+        FILE *f;
+        if (enum_orig(&ENG_DRUM.edit[0], (int32_t)k) != (int32_t)k)
+            continue;                                 /* a retired alias */
+        snprintf(path, sizeof path, "%s/kit_%02u_%s.wav", dir, (unsigned)k, kit_name(k));
+        f = fopen(path, "wb");
+        wav_hdr(f, FS * 5u);
+        peak = play_kit(k, f, &rms, &clips);
+        fclose(f);
+        printf("%2u %-6s peak %5d rms %6.0f clipped %u\n", (unsigned)k, kit_name(k), (int)peak, rms, (unsigned)clips);
+        {   /* the same into the combined file */
+            double r2;
+            uint32_t c2;
+            play_kit(k, all, &r2, &c2);
+        }
+        shown++;
+    }
+    {   /* patch the combined file's sizes */
+        uint32_t frames = shown * FS * 5u, v;
+        fseek(all, 4, SEEK_SET); v = 36 + frames * 4; fwrite(&v, 4, 1, all);
+        fseek(all, 40, SEEK_SET); v = frames * 4; fwrite(&v, 4, 1, all);
+        fclose(all);
+    }
+    return 0;
+}

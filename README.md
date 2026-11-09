@@ -28,6 +28,30 @@ use any kit, so a synthesized kick can play under HR-16 hats.
 | HR-16B samples | **Not included** (git-ignored). The importer was run on the Cluster Sound *Ableton Live* edition (`CS-HR-16B-Live.zip`, the WAVs in its `HR-16B/Samples/` folder, names like `cs_big_foot_kk.wav`): 47 files, 37 sorted into lanes, 3 kits (`HR-A..C`, 20 samples, 89 090 bytes) fit the default budget, and the decoded output has sane levels with no clipping. Other editions of the pack may name files differently: run `--list` and check. The 10 FX hits (bottles, pipe, ...) are not used. |
 | Flash size | **Unknown.** The 98 KiB sample budget (`HR16_BUDGET`) is a guess about what fits beside Felucca; the build's linker check will tell. Felucca's CC0 piano/flute/sax and the SLICE engine are dropped to make room. |
 
+## Host render: what the firmware sources do (no FM-1 needed)
+
+The JieLi toolchain for the FM-1 itself could not be reached, so there is no `.fwsc` yet. `./host_render.sh` builds the
+**same patched firmware sources** for the host with gcc (Felucca's own test harness: the real engines, voices, mixer, FX,
+sequencer and UI code on a stub display) and captures what they do. It clones Felucca, applies the patch, generates the
+tables, compiles, and writes `out/host/`: a WAV per kit and `all_kits.mp3`, the screens as PNGs, and the charts below.
+About 40 seconds.
+
+* **It compiles.** The patch (`eng_drum.c`, the ported SLOOP synth, the sample player) builds with the flags
+  `FELUCCA_DRUMONLY=1 FELUCCA_SLICE=0 FELUCCA_TR606=1 FELUCCA_ACOUSTIC=1 FELUCCA_HR16=1`; the only warnings are Felucca's
+  (two unused variables with SLICE off, 64-bit pointer casts in the hardware layer).
+* **All 18 kits render** (21 KIT values, 3 of them retired aliases) a two-bar GM beat through the real mixer and FX with **no clipped sample**
+  ([levels](docs/host-render/kit_levels.txt)). Synthesized kits sit at 3.7-5.1 k RMS (TR606 3.7 k at the default -3 dB); the
+  acoustic kits are quieter, 2.0-2.8 k, the HR-16 ones 3.7-3.9 k. The acoustic kits could take about 3-5 dB more
+  (`PEAK` in `gen_hr16.py`); not changed without listening.
+* **Felucca's UI lint passes** on the patched build: 233 screens x 10 palettes, 0 layout findings, 0 alignment errors
+  ([log](docs/host-render/ui_lint.txt)). The new kit names fit the KIT page.
+* Charts: [the drum grid and KIT / HIT pages of four of the new kits](docs/host-render/screens_new_kits.png),
+  [the 8-lane grid of STD, TR606 and ACOUS](docs/host-render/screens_grid.png),
+  [waveform and spectrogram of each kit playing the same beat](docs/host-render/audio_overview.png).
+
+This is the host build: it says nothing about the FM-1's own CPU budget (the render is faster than real time on a PC), flash
+size, or how it sounds on the speaker.
+
 ## Build
 
 You need what Felucca's [BUILDING.md](https://github.com/hugelton/Felucca/blob/main/BUILDING.md) lists: Python 3 with

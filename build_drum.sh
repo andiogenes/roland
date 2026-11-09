@@ -35,7 +35,7 @@ cp "$ROOT"/overlay/firmware/src/*.c "$WORK/firmware/src/"
 export FELUCCA_DRUMONLY=1 FELUCCA_SLICE=0 FELUCCA_ADPCM=0
 export FELUCCA_TR606="${FELUCCA_TR606:-1}"            # SLOOP's TR-606 kit (FELUCCA_TR606=0: leave it out)
 export TR606_GAIN_DB="${TR606_GAIN_DB:--3}"           # its level against Felucca's kits: a guess, tune by ear
-if ls "$HR16_DIR"/*.wav "$HR16_DIR"/*/*.wav >/dev/null 2>&1; then
+if [ -d "$HR16_DIR" ] && [ -n "$(find "$HR16_DIR" -iname '*.wav' | head -n 1)" ]; then
     export FELUCCA_HR16=1 HR16_DIR
     echo "build_drum: HR-16 samples from $HR16_DIR"
 else

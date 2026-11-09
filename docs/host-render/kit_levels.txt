@@ -1,0 +1,19 @@
+kits: 21 (DK_COUNT)
+ 0 STD    peak 23610 rms   4592 clipped 0
+ 4 80     peak 23066 rms   4158 clipped 0
+ 5 10     peak 20179 rms   5089 clipped 0
+ 6 66     peak 22655 rms   4036 clipped 0
+ 7 55     peak 21255 rms   3742 clipped 0
+ 8 77     peak 20166 rms   4869 clipped 0
+ 9 DEEP   peak 23986 rms   4746 clipped 0
+10 TIGHT  peak 21978 rms   3802 clipped 0
+11 PERC   peak 20565 rms   4759 clipped 0
+12 TR606  peak 22629 rms   3728 clipped 0
+13 ACOUS  peak 20376 rms   2582 clipped 0
+14 AC-DP  peak 17524 rms   2764 clipped 0
+15 AC-TI  peak 19977 rms   1962 clipped 0
+16 AC-BR  peak 20400 rms   2492 clipped 0
+17 AC-DU  peak 18065 rms   2607 clipped 0
+18 HR-A   peak 20196 rms   3657 clipped 0
+19 HR-B   peak 20955 rms   3905 clipped 0
+20 HR-C   peak 21455 rms   3888 clipped 0
