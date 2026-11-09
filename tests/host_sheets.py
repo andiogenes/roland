@@ -45,6 +45,19 @@ if pals:
 Image.open(shots / "GREY_grid_TR606.png").resize((720, 720), Image.NEAREST).save(out / "screen_grid_big.png")
 Image.open(shots / "GREY_kit_ACOUS.png").resize((720, 720), Image.NEAREST).save(out / "screen_kit_big.png")
 
+# the INSERT's four devices (ui_faces.c): page 1 and page 2 of each, in colour (NIGHT), then big
+devs = ["COMP", "PRE", "HARM", "METAL"]
+if all((shots / f"NIGHT_insert1_{d}.png").exists() for d in devs):
+    img = Image.new("RGB", (240 * 4 + 24, 2 * 256), (24, 24, 24))
+    dr = ImageDraw.Draw(img)
+    for i, d in enumerate(devs):
+        for pg in (1, 2):
+            img.paste(Image.open(shots / f"NIGHT_insert{pg}_{d}.png"), (i * 248, (pg - 1) * 256 + 16))
+            dr.text((i * 248 + 4, (pg - 1) * 256 + 2), f"{d}  INSERT{'' if pg == 1 else ' 2'}", fill=(200, 200, 200))
+    img.save(out / "screens_insert.png")
+    for d in devs:                        # the panel of each, 3x (a face is 220 x 88 on the device)
+        Image.open(shots / f"NIGHT_insert1_{d}.png").crop((0, 0, 240, 126)).resize((720, 378), Image.NEAREST).save(out / f"insert_{d}.png")
+
 # waveform + spectrogram per kit
 kits = [(f.stem, f.stem.split("_", 2)[2]) for f in sorted(audio.glob("kit_*.wav"))]
 W, RH, SH = 900, 110, 90

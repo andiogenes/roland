@@ -31,6 +31,34 @@ int main(int argc, char **argv)
             write_ppm(out, "GREY", name);
         }
     }
+    {   /* the INSERT's four devices (ui_faces.c), each with its two pages: values turned away from their defaults */
+        static const struct { const char *name; int16_t v[5]; } DEV[4] = {
+            {"COMP", {80, 100, 20, 90, 2}}, {"PRE", {100, 90, 24, -20, 1}},
+            {"HARM", {100, 70, 2, 0, 0}}, {"METAL", {90, -30, 25, 110, 0}}};
+        uint32_t d, pi, q;
+        for (d = 0; d < 4u; d++)
+            for (pi = 0; pi < 2u; pi++) {
+                setup(S_DRUM);
+                trk[3].p[P_ITYPE] = (int16_t)(d + 1u);
+                trk[3].p[P_IA] = DEV[d].v[0]; trk[3].p[P_IB] = DEV[d].v[1]; trk[3].p[P_IC] = DEV[d].v[2];
+                trk[3].p[P_ID] = DEV[d].v[3]; trk[3].p[P_IE] = DEV[d].v[4];
+                go_title(pi ? "INSERT 2" : "INSERT");
+                snprintf(name, sizeof name, "insert%u_%s", pi + 1u, DEV[d].name);
+                pal(UI_GREY_INDEX);
+                draw(S_DRUM);
+                write_ppm(out, "GREY", name);
+                for (q = 0; q < NPALETTES && strcmp(UI_PALETTES[q].name, "NIGHT"); q++)   /* and in colour: the devices' paint */
+                    ;
+                setup(S_DRUM);
+                trk[3].p[P_ITYPE] = (int16_t)(d + 1u);
+                trk[3].p[P_IA] = DEV[d].v[0]; trk[3].p[P_IB] = DEV[d].v[1]; trk[3].p[P_IC] = DEV[d].v[2];
+                trk[3].p[P_ID] = DEV[d].v[3]; trk[3].p[P_IE] = DEV[d].v[4];
+                go_title(pi ? "INSERT 2" : "INSERT");
+                pal(q);
+                draw(S_DRUM);
+                write_ppm(out, "NIGHT", name);
+            }
+    }
     {   /* the same grid and KIT page in every palette (GREY MONO GREEN PAPER NIGHT) */
         static const char *const PALS[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};
         uint32_t q, pi;

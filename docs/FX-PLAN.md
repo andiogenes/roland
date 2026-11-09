@@ -26,7 +26,7 @@ FREEZE, OCT UP / DN, REV / ECHO THROW, the filters) stay.
 | 3 | Compressor, tape delay, tape rot | Not started |
 | 4 | HM-2, Percolator, IVP | Not started |
 | 5 | Dragonfly Room (fixed point, 22.05 kHz) | Not started |
-| 6 | UI, parameters, presets, the master chain, docs | Not started |
+| 6 | UI, parameters, presets, the master chain, docs | **Started.** The INSERT's four device faces (`overlay/firmware/src/ui_faces.c`: COMP, PRE, HARM, METAL) and their parameters (A to E, TYPE names) are in and linted; the types pass the sound unchanged until steps 3 and 4. Next: the master chain's two slots, the tape effects' pages, presets. |
 
 Every step is checked on the host: renders against goldens, response and distortion curves against the reference models, the
 instruction counts against the CPU budget (about 59 instructions a sample per 1 % of the audio CPU), the whole-firmware

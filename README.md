@@ -63,6 +63,28 @@ is the track's preset, and the host render sets the kit directly.</sub></p>
 <p align="center"><img src="docs/host-render/screens_new_kits.png" alt="Grid, KIT and HIT pages of four of the new kits" width="720"></p>
 <p align="center"><sub>The grid, KIT and HIT pages for TR606, ACOUS, AC-DU and HR-A: the new kit names fit the screen.</sub></p>
 
+## The INSERT's four devices
+
+<p align="center"><img src="docs/host-render/screens_insert.png" alt="The INSERT page for the four devices, pages 1 and 2" width="720"></p>
+<p align="center"><sub>Top row: the INSERT page of COMP, PRE, HARM and METAL. Bottom row: INSERT 2 (the fourth and fifth control, and
+MIX). The ring marks the controls the open page turns. The bodies keep the devices' paint on every colour palette, and turn
+to their grays on GREY and MONO.</sub></p>
+
+The INSERT page draws each effect as the box it models, with its own controls where the box has them, turned to the track's
+values (`overlay/firmware/src/ui_faces.c`; no maker's name or logo is drawn):
+
+| Type | Modelled on | Controls (the knobs' order) |
+|---|---|---|
+| COMP | a 1176-style limiting amplifier (rack) | INPUT, OUT, ATK, REL, RATIO 4 / 8 / 12 / 20 / ALL; the gain-reduction meter |
+| PRE | the Surveyor-style preamp pedal (the Intersound preamp's family) | LEVEL, GAIN, BASS, TREBLE (cut / boost around noon), HI / LO switch |
+| HARM | the Harmonic Percolator | HARMONICS and BALANCE sliders, MODE (GE, OFF, SI: the clipping diodes) |
+| METAL | the HM-2 | LEVEL, LOW and HIGH (the COLOR MIX pair, around noon), DIST |
+
+INSERT has the values A to E (`P_IA .. P_IC`, and the two the drum machine added, `P_ID` and `P_IE`); a type names the ones it
+has and shows "-" for the rest. **The pictures are all there is so far: the signal processing follows in steps 3 and 4 of
+[the FX plan](docs/FX-PLAN.md), and until then a selected type passes the sound unchanged.** Projects and presets that were
+saved before load with D 64 and E 0 (the format maps by count, no version change).
+
 ## Status: read this first
 
 | | |

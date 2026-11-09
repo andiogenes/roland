@@ -1,5 +1,5 @@
 diff --git a/firmware/src/core.h b/firmware/src/core.h
-index 2c1b980..a3d2997 100644
+index 2c1b980..1127baf 100644
 --- a/firmware/src/core.h
 +++ b/firmware/src/core.h
 @@ -35,11 +35,25 @@
@@ -29,7 +29,15 @@ index 2c1b980..a3d2997 100644
                                                  * in the display order of engines.c ENGINE_ORDER */
  #define UP_SLOTS 32u             /* user presets (upreset.c) */
  
-@@ -118,6 +132,11 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const
+@@ -79,6 +93,7 @@ enum {                          /* per-track parameters */
+     P_FTYPE,                                   /* 1.5 (#104): ANALOG's filter TYPE, LP (as before) / BP / HP (eng_analog.c) */
+     P_ESYNC,                                   /* 1.5 (#175): ENV SYNC: ATK DEC REL as note values of the tempo (voice.c) */
+     P_ATSNS, P_ATDST, P_ATAMT,                 /* 1.8: AFTERTOUCH: the keys' pressure (keytouch.c) and its routing (mod.c) */
++    P_ID, P_IE,                                /* DRUM machine: the INSERT's fourth and fifth values (the devices have up to five controls) */
+     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
+     P_COUNT
+ };
+@@ -118,6 +133,11 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const
  /* engine indices the stores name (engines.c ENGINES[]: append-only) */
  #define ENGI_PHYS 9u
  #define ENGI_DRUM 10u
@@ -41,6 +49,18 @@ index 2c1b980..a3d2997 100644
  /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
   * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
   * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
+@@ -320,9 +340,9 @@ typedef struct track {
+     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block: its S&H is drawn after the parts (voice.c) */
+     uint32_t esync_k[3];         /* ATK's step, DEC's and REL's coefficient (Q16) this block (voice.c esync_coef) */
+     uint8_t spread_on;           /* SPREAD this block (fx.c mix_part, voice.c track_render) */
+-    uint8_t rsv_sz[15];          /* (sizeof(track_t) a multiple of 16: below; 1.8's AFTERTOUCH grew it by 14) */
++    uint8_t rsv_sz[11];          /* (sizeof(track_t) a multiple of 16: below; 1.8's AFTERTOUCH grew it by 14; the drum machine's INSERT D and E took 4) */
+ #else
+-    uint8_t rsv_sz[12];          /* (sizeof(track_t) a multiple of 16: below; 1.8's AFTERTOUCH took 2 of it) */
++    uint8_t rsv_sz[8];           /* (sizeof(track_t) a multiple of 16: below; 1.8's AFTERTOUCH took 2 of it, INSERT D and E 4) */
+ #endif
+     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
+     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
 diff --git a/firmware/src/editor.c b/firmware/src/editor.c
 index 3ab73de..150ca0b 100644
 --- a/firmware/src/editor.c
@@ -629,7 +649,7 @@ index 579413a..3646e7e 100644
  
  /* ------------------------------------------------- MIDI, sequencer --- */
 diff --git a/firmware/src/fx.c b/firmware/src/fx.c
-index d2bcf92..55254ec 100644
+index d2bcf92..09fda7b 100644
 --- a/firmware/src/fx.c
 +++ b/firmware/src/fx.c
 @@ -5,7 +5,9 @@
@@ -689,21 +709,23 @@ index d2bcf92..55254ec 100644
          /* delay with a low-passed feedback */
          x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
          fx.dly_lp += mulq15(x - fx.dly_lp, col);
-@@ -613,6 +626,13 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
+@@ -613,6 +626,15 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
      }
  }
  
 +#if FELUCCA_DRUMONLY
 +/* INSERT: one effect per track, after the voices and before the level, pan and sends. The old types (the drives, CRUSH, the
-+ * phaser, flanger and chorus) are gone; the new pool of effects comes here. TYPE is OFF only for now. */
-+enum { IT_OFF, IT_N };
++ * phaser, flanger and chorus) are gone; the new pool of effects comes here. TYPE: OFF, COMP, PRE, HARM, METAL. */
++/* the faces (ui_faces.c) are the types' pictures; the signal processing of each follows (docs/FX-PLAN.md steps 3 and 4): until it
++ * does, a selected type passes the sound unchanged. */
++enum { IT_OFF, IT_COMP, IT_PRE, IT_HARM, IT_METAL, IT_N };
 +static inline void ins_rest(track_t *t) { t->ins_run = 0; }
 +static inline void track_insert(track_t *t, int32_t *b, uint32_t n) { (void)b; (void)n; t->ins_run = 0; }
 +#else
  /* INSERT (1.5, Discussions #78 and #177): one effect per track, after DIST and before the SLICER, with a dry / wet
   * MIX. TYPE (P_ITYPE, N_ITYPE; stored, append-only) and its three values A B C (P_IA .. P_IC, what they mean: params.c
   * ins_desc):
-@@ -803,6 +823,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
+@@ -803,6 +825,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
          ins_drive(s, t, b, n, tw);
      t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
  }
@@ -711,7 +733,7 @@ index d2bcf92..55254ec 100644
  
  /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
   * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-@@ -896,7 +917,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -896,7 +919,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
  #endif
          t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                           * voice (the INSERT's: 46 ms, a flanger's feedback) */
@@ -720,7 +742,7 @@ index d2bcf92..55254ec 100644
          slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
          if (t->ins_run && !t->p[P_ITYPE])
              ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
-@@ -918,7 +939,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -918,7 +941,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                                                           * them, no spill in the loop: the ISR's cost as before 1.5) */
          int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
          int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
@@ -780,23 +802,108 @@ index 864dfae..715c57f 100644
  _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
  #define NMSLOT 4u
  #define NMSLOT_ALL (NMSLOT + 1u)  /* + 1.8's AFTERTOUCH (VOICE 3): a slot of its own, its source AT (P_ATDST, P_ATAMT) */
+diff --git a/firmware/src/motion.c b/firmware/src/motion.c
+index 43fbec7..fbccafd 100644
+--- a/firmware/src/motion.c
++++ b/firmware/src/motion.c
+@@ -38,7 +38,7 @@ static int motion_param(uint32_t id)
+     return id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
+         (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
+         id == P_DETUNE || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || (id >= P_LN0 && id <= P_LN7) ||
+-        id == P_SPRD || (id >= P_ITYPE && id <= P_IMIX) || id >= P_E0);   /* (not the chord keys, nor 1.2's LFO SYNC TRIG
++        id == P_SPRD || (id >= P_ITYPE && id <= P_IMIX) || id == P_ID || id == P_IE || id >= P_E0);   /* (not the chord keys, nor 1.2's LFO SYNC TRIG
+                                         * POL and QUANTIZE, nor 1.5's filter TYPE and ENV SYNC: settings; the DRUM lane
+                                         * levels, SPREAD (#148: continuous, as PAN), 1.5's INSERT (TYPE too: a lock
+                                         * switches it for a step, fx.c track_insert fades over), E0..E7) */
 diff --git a/firmware/src/params.c b/firmware/src/params.c
-index 4d00f50..847915e 100644
+index 4d00f50..e5a2108 100644
 --- a/firmware/src/params.c
 +++ b/firmware/src/params.c
-@@ -58,7 +58,11 @@ static const char *const N_GO[] = {"--", "GO"};
+@@ -58,7 +58,14 @@ static const char *const N_GO[] = {"--", "GO"};
  static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_OFF .. SL_STUT (slicer.c) */
  static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
  /* the INSERT's types (1.5, fx.c IT_*; append-only: stored). Its three values A B C mean what the type says (ins_desc) */
 +#if FELUCCA_DRUMONLY
-+static const char *const N_ITYPE[] = {"OFF"};   /* (the old types are gone; the new effects are appended here) */
++static const char *const N_ITYPE[] = {"OFF", "COMP", "PRE", "HARM", "METAL"};   /* the pool's devices (fx.c IT_*; append-only) */
++static const char *const N_IRATIO[] = {"4", "8", "12", "20", "ALL"};   /* COMP: the ratio buttons */
++static const char *const N_IGAIN[] = {"LO", "HI"};                   /* PRE: the switch */
++static const char *const N_IMODE[] = {"GE", "OFF", "SI"};            /* HARM: the clipping diodes */
 +#else
  static const char *const N_ITYPE[] = {"OFF", "SOFT", "HARD", "FOLD", "FUZZ", "CRUSH", "PHASR", "FLANG", "CHOR"};
 +#endif
  /* CRUSH: BITS 1..16 and RATE (the held sample's rate, fx.c INS_HOLD) over the range in 16 even parts (0-terminated) */
  static const char *const N_IBITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
                                        "16", 0};
-@@ -262,9 +266,18 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
+@@ -177,10 +184,42 @@ static const param_desc_t TP[P_COUNT] = {
+     [P_ATSNS] = PE("AT", N_ATSNS, 0),
+     [P_ATDST] = PE("ATDST", N_MDST, 0),
+     [P_ATAMT] = PD("ATAMT", F_BIPCT, -64, 63, 0),
++    [P_ID] = PD("INS D", F_PCT, 0, 127, 64),
++    [P_IE] = PD("INS E", F_PCT, 0, 127, 0),
+ };
+ 
++#if FELUCCA_DRUMONLY
++/* the INSERT's A .. E as its TYPE means them (ui_faces.c draws the same controls): the knobs and switches of the device each
++ * type models, in the order its face lists them; a control the device does not have is "-" (nothing to turn)
++ *   COMP   INPUT OUT ATK REL RATIO         the 1176-style limiter
++ *   PRE    LEVEL GAIN BASS TREBL RANGE     the Surveyor-style preamp (BASS and TREBLE cut / boost around noon)
++ *   HARM   HARM BAL MODE - -               the Harmonic Percolator: HARMONICS, BALANCE, the clipping diodes
++ *   METAL  LEVEL LOW HIGH DIST -           the HM-2 (LOW and HIGH: COLOR MIX, cut / boost around noon) */
++#define PX(l, f, mn, mx, df, n) {l, f, mn, mx, df, n, 0}
++#define PU(l, df) PX(l, F_PCT, 0, 127, df, 0)
++#define PB(l) PX(l, F_BIPCT, -64, 63, 0, 0)
++#define PN(l, n, df) PX(l, F_ENUM, 0, (int16_t)(sizeof(n) / sizeof(n[0]) - 1), df, n)
++#define PNONE PX("-", F_INT, 0, 0, 0, 0)
++static const param_desc_t INS_DESC[4][5] = {
++    {PU("INPUT", 64), PU("OUT", 96), PU("ATK", 32), PU("REL", 64), PN("RATIO", N_IRATIO, 0)},
++    {PU("LEVEL", 96), PU("GAIN", 64), PB("BASS"), PB("TREBL"), PN("RANGE", N_IGAIN, 0)},
++    {PU("HARM", 96), PU("BAL", 96), PN("MODE", N_IMODE, 0), PNONE, PNONE},
++    {PU("LEVEL", 96), PB("LOW"), PB("HIGH"), PU("DIST", 64), PNONE},
++};
++#undef PX
++#undef PU
++#undef PB
++#undef PN
++#undef PNONE
++static const param_desc_t *ins_desc(int32_t type, uint32_t k)
++{
++    if (type <= 0 || type >= (int32_t)NELEM(N_ITYPE))
++        return k < 3u ? &TP[P_IA + k] : &TP[k == 3u ? P_ID : P_IE];
++    return &INS_DESC[type - 1][k];
++}
++#else
+ /* the INSERT's A B C as its TYPE means them (TP's ranges and defaults): the drives DRIVE TONE LEVEL, CRUSH BITS RATE
+- * LPF, the swept ones RATE DEPTH FDBK; OFF TP's own */
++ * LPF, the swept ones RATE DEPTH FDBK; OFF TP's own (D and E: the drum machine's, unused here) */
+ #define PU(l, f, df, n, u) {l, f, 0, 127, df, n, u}
+ static const param_desc_t INS_DESC[3][3] = {
+     {PU("DRIVE", F_PCT, 64, 0, 0), PU("TONE", F_CUTOFF, 96, 0, 0), PU("LEVEL", F_DB, 96, 0, 0)},
+@@ -190,10 +229,11 @@ static const param_desc_t INS_DESC[3][3] = {
+ #undef PU
+ static const param_desc_t *ins_desc(int32_t type, uint32_t k)
+ {
+-    if (type <= 0 || type >= (int32_t)NELEM(N_ITYPE))
+-        return &TP[P_IA + k];
++    if (type <= 0 || type >= (int32_t)NELEM(N_ITYPE) || k >= 3u)
++        return k < 3u ? &TP[P_IA + k] : &TP[k == 3u ? P_ID : P_IE];
+     return &INS_DESC[type < 5 ? 0 : type == 5 ? 1 : 2][k];   /* (IT_SOFT .. IT_FUZZ, IT_CRUSH, the swept ones) */
+ }
++#endif
+ 
+ static const param_desc_t GP[G_COUNT] = {
+     [G_BPM] = PD("BPM", F_BPM, 40, 240, 120),
+@@ -241,8 +281,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
+         const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
+         return d ? d : &e->edit[id - P_E0];
+     }
+-    if (id >= P_IA && id <= P_IC)                     /* the INSERT's values as its TYPE names them */
+-        return ins_desc(t->p[P_ITYPE], id - P_IA);
++    if ((id >= P_IA && id <= P_IC) || id == P_ID || id == P_IE)   /* the INSERT's values as its TYPE names them */
++        return ins_desc(t->p[P_ITYPE], id >= P_ID ? id - P_ID + 3u : id - P_IA);
+     if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
+         return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
+     return &TP[id];
+@@ -262,9 +302,18 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
   * stands for */
  static int32_t enum_orig(const param_desc_t *d, int32_t v)
  {
@@ -815,7 +922,7 @@ index 4d00f50..847915e 100644
  }
  
  /* a stored value as the parameter takes it (projects, user presets, motion): inside d's range, and a retired
-@@ -276,7 +289,7 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
+@@ -276,7 +325,7 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
      v = clamp(v, d->min, d->max);
      if (d->names == N_FM6_PATCH)
          return v > (int32_t)FM6_OWN ? (int32_t)FM6_OWN : v;
@@ -824,7 +931,7 @@ index 4d00f50..847915e 100644
  }
  
  /* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice */
-@@ -462,7 +475,11 @@ static const page_t PAGES[] = {
+@@ -462,10 +511,14 @@ static const page_t PAGES[] = {
      {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
      {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
      {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
@@ -835,7 +942,11 @@ index 4d00f50..847915e 100644
 +#endif
      {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
      {"INSERT", FAM_FX, SC_TRACK, GR_INS, {P_ITYPE, P_IA, P_IB, P_IC}},   /* 1.5: the track's INSERT (fx.c) */
-     {"INSERT 2", FAM_FX, SC_TRACK, GR_INS, {P_IMIX, 0xFF, 0xFF, 0xFF}},  /* .. its dry / wet */
+-    {"INSERT 2", FAM_FX, SC_TRACK, GR_INS, {P_IMIX, 0xFF, 0xFF, 0xFF}},  /* .. its dry / wet */
++    {"INSERT 2", FAM_FX, SC_TRACK, GR_INS, {P_ID, P_IE, P_IMIX, 0xFF}},  /* .. its fourth and fifth control, its dry / wet */
+     {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
+     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING / HALL */
+     {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
 diff --git a/firmware/src/perform.c b/firmware/src/perform.c
 index 0f9108c..6e768aa 100644
 --- a/firmware/src/perform.c
@@ -924,9 +1035,18 @@ index 0f9108c..6e768aa 100644
                pf.fn || perf_k[0] || perf_k[1] || perf_k[2];
  }
 diff --git a/firmware/src/project.c b/firmware/src/project.c
-index d267cd1..0cb45d1 100644
+index d267cd1..fef57ba 100644
 --- a/firmware/src/project.c
 +++ b/firmware/src/project.c
+@@ -63,7 +63,7 @@
+  * 68 + 4 x (104 + 2 + 576) + chain + motion = 3268; the patches at PROJ_FM6_OFF (3312): 44 spare, room for 11 more
+  * track parameters. 1.5 took seven of them (no format change, FUN10 as it was): the INSERT (P_ITYPE .. P_IMIX, 96..100),
+  * ANALOG's filter TYPE (P_FTYPE, 101) and ENV SYNC (P_ESYNC, 102), before the engine values (P_COUNT 111, P_E0 103; 16
+- * spare, room for 4). A FUN10 of 1.2 .. 1.4 (104) loads by count: the INSERT OFF, TYPE LP, ENV SYNC OFF (as they
++ * spare, room for 4; the drum machine's INSERT D and E (P_ID, P_IE) took two of them: P_COUNT is 2 more, a record of fewer loads by count with D 64 and E 0). A FUN10 of 1.2 .. 1.4 (104) loads by count: the INSERT OFF, TYPE LP, ENV SYNC OFF (as they
+  * played), its engine values and their motion moved up by seven.
+  * Firmware 1.2 .. 1.4 refuses a FUN10 of more parameters than its own (np > P_COUNT): a 1.5 project shows EMPTY there. FUN9 / FUN8 / FUN7 load as before (their 64 records of 4 bytes read by proj_motion_v9, every
+  * step's nudge 0: the timing they always had; parameters mapped by count, the four new ones at their defaults:
 @@ -322,7 +322,7 @@ static void proj_phys(project_t *q)
   * over to FM6's macros. Idempotent */
  static void proj_fm4(project_t *q)
@@ -1040,7 +1160,7 @@ index 762d5a9..ceae307 100644
          const track_t *t = TSEL;
          uint32_t id = P_M1SRC + 3u * mod_ui_slot;
 diff --git a/firmware/src/ui_graph.c b/firmware/src/ui_graph.c
-index 0ae1efb..bd0c641 100644
+index 0ae1efb..c156089 100644
 --- a/firmware/src/ui_graph.c
 +++ b/firmware/src/ui_graph.c
 @@ -12,7 +12,9 @@
@@ -1062,15 +1182,17 @@ index 0ae1efb..bd0c641 100644
          int32_t h = t->p[P_DIST + i] * 76 / 127, x = CARD_X(i) + 26;
          cv_rrect(x, 6, 4, 82, 2, T_RAISE, T_SURF);
          if (h > 3)
-@@ -446,6 +448,7 @@ static void graph_fx(const track_t *t, uint16_t c)
+@@ -446,6 +448,9 @@ static void graph_fx(const track_t *t, uint16_t c)
          cv_rrect(x - 4, 85 - h, 12, 6, 3, c, T_SURF);
      }
  }
-+#if !FELUCCA_DRUMONLY                                   /* (the old INSERT types' curves, and the SLICER page) */
++#if FELUCCA_DRUMONLY
++#include "ui_faces.c"                                  /* the INSERT's devices, drawn as themselves */
++#else                                                   /* (the old INSERT types' curves, and the SLICER page) */
  /* INSERT pages (1.5, fx.c track_insert): the drives and CRUSH as their curve, input (-1.5 .. +1.5 of a voice's full
   * scale) across, output up, dry and wet blended by MIX (fx.c ins_shape: the same shape; the dry diagonal RAISE); the
   * swept ones as two cycles of their sweep, as deep as DEPTH (FLANG the squared triangle, CHOR a sine, PHASR a
-@@ -501,6 +504,7 @@ static void graph_slicer(const track_t *t, uint16_t c)
+@@ -501,6 +506,7 @@ static void graph_slicer(const track_t *t, uint16_t c)
              cv_rect(x, 84, 9, 2, T_ACCENT);
      }
  }
@@ -1078,7 +1200,7 @@ index 0ae1efb..bd0c641 100644
  /* MOD page: the four slots as rows "1 LFO > CUT +50%" (M, a list's rows: the source to x 78, the arrow 84..98, the
   * destination of up to 5 characters 106..160, the amount from 172), the one KNOB 2..4 edit selected, slots that do
   * nothing (SRC, DST or AMT at 0) dim */
-@@ -553,6 +557,7 @@ static uint32_t str_hash(uint32_t h, const char *s)
+@@ -553,6 +559,7 @@ static uint32_t str_hash(uint32_t h, const char *s)
      return h;
  }
  
@@ -1086,7 +1208,7 @@ index 0ae1efb..bd0c641 100644
  /* One shared, reduced sample display. Decode only in the UI/main loop with a
   * private IMA state, 512 samples per frame; no audio voice state is touched.
   * Cache follows the sample zone, selected note and user-slot generation. */
-@@ -628,6 +633,7 @@ static void graph_sample(uint16_t c)
+@@ -628,6 +635,7 @@ static void graph_sample(uint16_t c)
          cv_line(left, 4, left, 90, T_MID); cv_line(right, 4, right, 90, T_MID);
      }
  }
@@ -1094,7 +1216,7 @@ index 0ae1efb..bd0c641 100644
  
  #if FELUCCA_SLICE
  /* SLICES (ui_slice.c): the waveform from the marker before the selected one to the one after it (the selected
-@@ -684,6 +690,7 @@ static void graph_slices(void)
+@@ -684,6 +692,7 @@ static void graph_slices(void)
  }
  #endif
  
@@ -1102,7 +1224,7 @@ index 0ae1efb..bd0c641 100644
  /* WHEEL: the nine drawbars as rounded bars over RAISE slots (the bars of the knob just turned: the accent),
   * their footages under them */
  static void graph_wheel(const track_t *t, uint16_t c)
-@@ -902,6 +909,7 @@ static void graph_fm6env(const track_t *t, uint16_t c)
+@@ -902,6 +911,7 @@ static void graph_fm6env(const track_t *t, uint16_t c)
      cv_text_r(228, 4 - GOY, &AF_S, b, T_TEXT, T_SURF);
  }
  
@@ -1110,7 +1232,7 @@ index 0ae1efb..bd0c641 100644
  #if FELUCCA_FM4
  /* DIGITAL's eight algorithms as FM charts, read from src/eng_digital.c's switch (alg) (ui_test.c checks
   * these tables against it). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
-@@ -1219,8 +1227,10 @@ static uint32_t graph_signature(void)
+@@ -1219,8 +1229,10 @@ static uint32_t graph_signature(void)
      }
      if (pg->graph == GR_MOD)
          h ^= (mod_ui_slot + 1u) * 40503u;
@@ -1121,7 +1243,7 @@ index 0ae1efb..bd0c641 100644
      if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
          for (i = 0; i < 4u; i++)
              h ^= (uint32_t)graph_project_used(i) << (20u + i);
-@@ -1232,6 +1242,7 @@ static uint32_t graph_signature(void)
+@@ -1232,6 +1244,7 @@ static uint32_t graph_signature(void)
  #if FELUCCA_SLICE
      if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
  #endif
@@ -1129,7 +1251,7 @@ index 0ae1efb..bd0c641 100644
      if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
                                     (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
          h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
-@@ -1239,6 +1250,7 @@ static uint32_t graph_signature(void)
+@@ -1239,6 +1252,7 @@ static uint32_t graph_signature(void)
                                                       * levels, FB; the operator pages: the operator, the stage) */
          h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + (fop_op + 1u) * 40503u + (fop_stg + 1u) * 7919u;
      if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) h ^= sample_wave.pos * 13u + sample_wave.key;
@@ -1137,7 +1259,7 @@ index 0ae1efb..bd0c641 100644
      if (pg->graph == GR_ROLL) {
          uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
          if (ph / 16u != ui.bank)
-@@ -2244,7 +2256,9 @@ static void draw_graph(void)
+@@ -2244,7 +2258,9 @@ static void draw_graph(void)
          draw_home_tracks();
          return;
      }
@@ -1147,7 +1269,7 @@ index 0ae1efb..bd0c641 100644
      sig = graph_signature();
      if (!ui.force && sig == ui.graph_sig)
          return;
-@@ -2292,11 +2306,13 @@ static void draw_graph(void)
+@@ -2292,12 +2308,18 @@ static void draw_graph(void)
          case GR_FX:
              graph_fx(t, c);
              break;
@@ -1157,11 +1279,16 @@ index 0ae1efb..bd0c641 100644
              break;
          case GR_INS:
              graph_insert(t, c);
-+#endif
              break;
++#else
++        case GR_INS:
++            graph_insert_face(t, c);
++            break;
++#endif
          case GR_MOD:
              cv_oy = 0;
-@@ -2336,6 +2352,7 @@ static void draw_graph(void)
+             graph_mod(t, c);
+@@ -2336,6 +2358,7 @@ static void draw_graph(void)
              graph_slices();
              break;
  #endif
@@ -1169,7 +1296,7 @@ index 0ae1efb..bd0c641 100644
          case GR_FMOP:
          case GR_FMOP2:
              if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */
-@@ -2343,10 +2360,15 @@ static void draw_graph(void)
+@@ -2343,10 +2366,15 @@ static void draw_graph(void)
          case GR_FMENV:
              if (fop_ok()) graph_fm6env(t, c);
              break;
