@@ -148,6 +148,16 @@ as PNGs, and the charts above (`PUBLISH=1` also copies the shareable ones into `
 This says nothing about the FM-1's own CPU budget (the render is faster than real time on a PC), flash size, or how it
 sounds on the speaker.
 
+## Releases
+
+A release is the installable package (`felucca-X.Y-label.fwsc`) and its `SHA256SUMS`, built by [`.github/workflows/release.yml`](.github/workflows/release.yml) on
+GitHub's runners (they can reach JieLi's toolchain server and the SDK on gitee, which the sandbox this was written in could not, until a host list was
+allowed; running the vendor toolchain was then refused there, so **no firmware has been built by me**). To make one: push a tag such as `v0.1-roland`
+(one digit each, then a label) or run the workflow from the Actions tab and give the version. It builds, runs the host tests and opens a **draft**
+pre-release for you to look at and publish. The package has the synthesized kits, TR606, the acoustic kit and every effect, but **not** the HR-16B or
+Drumulator kits (their samples are not in the repository: build those yourself with `./build_drum.sh --release 0.1-roland`, which writes `dist/`).
+Nothing from a release has been installed on an FM-1 yet.
+
 ## Build
 
 You need what Felucca's [BUILDING.md](https://github.com/hugelton/Felucca/blob/main/BUILDING.md) lists: Python 3 with

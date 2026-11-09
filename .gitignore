@@ -10,3 +10,4 @@ assets/drumulator/*.wav
 assets/drumulator/**/*.wav
 assets/drumulator/*.WAV
 assets/drumulator/*.zip
+dist/

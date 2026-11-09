@@ -1,7 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
 # Build the drum machine firmware for the M-VAVE FM-1: Felucca (pinned) + patches/felucca-drum.patch + overlay/.
-#   ./build_drum.sh
+#   ./build_drum.sh [--release X.Y[-suffix]]      (a release build: the package felucca-X.Y.fwsc and the folder release-X.Y/ with its
+#                                                 SHA256SUMS, copied to dist/; one digit each, e.g. 0.1-roland)
 # Environment:
 #   DRUMULATOR_DIR  folder of the E-mu Drumulator's twelve WAV files (default assets/drumulator): the DRMU1..3 kits
 #   HR16_DIR        folder of Alesis HR-16B WAV files (default assets/hr16). Without WAVs there: no HR-16 kits.
@@ -57,8 +58,15 @@ else
     export ACOUSTIC_DIR=""
 fi
 
-(cd "$WORK" && ./build.sh)
-mkdir -p "$ROOT/out"
-cp "$WORK/build/felucca.fwsc" "$ROOT/out/roland-drum.fwsc"
-echo "build_drum: out/roland-drum.fwsc"
-echo "install: python3 $WORK/tools/fm1_install.py out/roland-drum.fwsc   (see BUILDING.md, Install, in Felucca)"
+(cd "$WORK" && ./build.sh "$@")
+if [ "${1:-}" = --release ]; then
+    mkdir -p "$ROOT/dist"
+    cp "$WORK"/build/felucca-"$2".fwsc "$ROOT/dist/"
+    cp -r "$WORK"/build/release-"$2" "$ROOT/dist/"
+    echo "build_drum: the release is in $ROOT/dist/"
+else
+    mkdir -p "$ROOT/out"
+    cp "$WORK/build/felucca.fwsc" "$ROOT/out/roland-drum.fwsc"
+    echo "build_drum: out/roland-drum.fwsc"
+    echo "install: python3 $WORK/tools/fm1_install.py out/roland-drum.fwsc   (see BUILDING.md, Install, in Felucca)"
+fi

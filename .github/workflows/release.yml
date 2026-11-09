@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Builds the drum machine firmware for the FM-1 on GitHub's runners (which can reach JieLi's toolchain server and the SDK on gitee) and puts the
+# installable package on a GitHub release.
+#   push a tag vX.Y[-suffix] (one digit each: v0.1-roland), or run it by hand from the Actions tab with the version
+# What the package holds: the synthesized kits, SLOOP's TR-606 and acoustic kits and every effect. NOT the HR-16B or Drumulator kits: their samples
+# are not in the repository (their licences are not known), so a build here has none. A build with them is `./build_drum.sh` on your machine.
+name: Release firmware
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "release label, one digit each (0.1-roland)"
+        required: true
+        default: "0.1-roland"
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python packages (the UI font and icons are rasterised at build time)
+        run: pip install Pillow fonttools numpy
+      - name: JieLi toolchain (clang for pi32v2) and the three SDK files the package uses
+        run: |
+          mkdir -p ~/.jieli && cd ~/.jieli
+          curl -fL --retry 3 -o toolchain.tar.xz https://pkgman.jieliapp.com/s/linux-toolchain
+          tar -xJf toolchain.tar.xz
+          ln -sfn "$(ls -d jieli-linux-toolchains-* | sort | tail -1)" toolchain
+          git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
+      - name: Version
+        id: v
+        run: |
+          V="${{ github.event.inputs.version }}"
+          [ -n "$V" ] || V="${GITHUB_REF_NAME#v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: |
+          ulimit -n 8192
+          sh build_drum.sh --release "${{ steps.v.outputs.version }}"
+      - name: Tests (the host-side ones that need no clone)
+        run: |
+          for t in tests/test_gen_hr16.py tests/test_tr606.py tests/test_acoustic.py tests/test_fxlab.py tests/test_comp.py tests/test_tape.py \
+                   tests/test_rot.py tests/test_hm2.py tests/test_perc.py tests/test_ivp.py tests/test_dfly.py; do python3 -I "$t"; done
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.version }}
+          name: Drum machine firmware v${{ steps.v.outputs.version }}
+          draft: true
+          prerelease: true
+          body: |
+            Firmware for the M-VAVE FM-1 built from `${{ github.sha }}` (Felucca 1.8.1 and `patches/felucca-drum.patch`).
+            **Not tested on a device**: nobody has installed this on an FM-1 yet, and the sound has not been heard. Installing is at your own risk;
+            Felucca's installer offers a way back to the official firmware. The package holds no HR-16B or Drumulator kits. See the README.
+          files: |
+            dist/felucca-${{ steps.v.outputs.version }}.fwsc
+            dist/release-${{ steps.v.outputs.version }}/SHA256SUMS
