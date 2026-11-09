@@ -95,13 +95,14 @@ as PNGs, and the charts above (`PUBLISH=1` also copies the shareable ones into `
 * **Felucca's UI lint passes** on the patched build: 233 screens x 10 palettes, 0 layout findings, 0 alignment errors
   ([log](docs/host-render/ui_lint.txt)).
 
-* **Removing the other engines saves about 99 KB of code and read-only data** (638,347 to 539,443 bytes, 15%) on the same
+* **Removing the other engines and the effects above saves about 107 KB of code and read-only data** (689,228 to 582,344
+  bytes, 15%, with the sample kits in) on the same
   tree, by the host compiler at `-Os` ([`tests/host_size.sh`](tests/host_size.sh), `out/host/size.txt`). That is x86-64 code,
   which is bulkier than the FM-1's, so read it as the size of the difference in kind, not as a number of kilobytes on the
   device. It includes 22 KB of sample-loop data that only the removed SLICE engine used. The audio of every kit is
   **bit-for-bit identical** before and after the removal, and every screen picture in `docs/` is byte-identical too.
-  Not touched: the 8 x 12.9 KB engine memory pool (RAM, sized for the largest removed engine; the DRUM engine needs far less)
-  and the effects' buffers.
+  RAM (data and bss) is 29 KB lower. Not touched: the 4 x 12.9 KB engine memory pool (RAM, sized for the largest removed
+  engine; the DRUM engine needs far less).
 
 This says nothing about the FM-1's own CPU budget (the render is faster than real time on a PC), flash size, or how it
 sounds on the speaker.
@@ -138,13 +139,20 @@ Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/tes
 * `FELUCCA_DRUMONLY=1`: **the only engine is DRUM.** The other engines (ANALOG, PHASE, LOFI, SAMPLE, VOICE, TRIO, WHEEL,
   GRAIN, PHYS, NOISE, FM6, and DIGITAL's conversion) are not built: their code, tables, factory sounds and their own screens
   (FM6's operator pages and algorithm charts, WHEEL's drawbars, SAMPLE's waveform) are left out to save flash. **What stays:**
-  everything that is not an engine, as asked: the effects (insert, chorus, delay, reverb, the SLICER insert), the modulation
-  matrix, LFOs, the arpeggiator, the sequencer, songs, projects, MIDI, USB audio and the editor. Engine numbers keep their
+  everything that is not an engine or one of the effects removed below: the delay and reverb sends, the modulation matrix,
+  LFOs, the arpeggiator, the sequencer, songs, projects, MIDI, USB audio and the editor. Engine numbers keep their
   slots in the table and every one of them plays DRUM, so a project, preset or backup that names another engine loads as
   drums. The records that held other engines' data (a project's FM6 patches, an undo step, a backup's FM6 and sample-slot
   sections) keep their layout, so what is already in flash still loads; the data is ignored, and the editor's sample-slot
   commands answer "no such slot". `overlay/firmware/src/drum_gone.c` is the small stand-in for what the remaining code still
   names. Power-on: DRUM KIT, TR-606, TIGHT KIT, and the acoustic kit on track 4.
+* **Effects, step 1 of [the FX plan](docs/FX-PLAN.md)** (`FELUCCA_DRUMONLY=1`): removed are the per-track **DIST**, the
+  **SLICER**, the **chorus** (its send, its buffer and its page), the old **INSERT types** (soft, hard, fold, fuzz, crush,
+  phaser, flanger, chorus) and the FX layer's **FLANGER** and **PHASER** (their keys are free). The INSERT slot stays, with
+  only OFF in it for now: the new effect pool goes there. The delay and reverb sends stay until their replacements (tape
+  delay, the Dragonfly room) are in. With these effects at their defaults the audio of every kit is **bit-for-bit identical**
+  to before; the FX page shows DLY and REV only. Stored values keep their ids (a project with a DIST amount loads, and the
+  amount is ignored).
 * `FELUCCA_HR16=1`: KIT values `HR-A`.. appended after PERC. A hit plays one IMA ADPCM sample per lane, resampled by
   **TUNE**; **DECY** below 64 shortens it, **TONE** below 64 darkens it, **DRV** distorts it; the closed hat chokes the open
   hat. **SNAP, KICK and ACC do nothing** on a sample kit. Level and accent come from velocity. GM notes keep Felucca's

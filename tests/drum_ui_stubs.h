@@ -18,3 +18,6 @@ static const smp_set_t SMP_SETS[1];
 static uint32_t fop_field(uint32_t slot) { (void)slot; return 0; }
 static uint32_t fop_byte(uint32_t f) { (void)f; return 0; }
 static uint32_t fm6_max(uint32_t b) { (void)b; return 0; }
+/* the SLICER's modes and the old INSERT types, which the harness's scenes still name (the firmware has neither) */
+enum { SL_OFF, SL_GATE, SL_STUT };
+enum { IT_SOFT = 1, IT_HARD, IT_FOLD, IT_FUZZ, IT_CRUSH, IT_PHASER, IT_FLANGER, IT_CHORUS };

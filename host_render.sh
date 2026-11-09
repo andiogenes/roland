@@ -60,6 +60,7 @@ cp "$ROOT/tests/render_kits.c" "$ROOT/tests/render_screens.c" "$ROOT/tests/drum_
 # self-checks, SAMPLE's waveform): the same guards the firmware got, and the stand-ins in tests/drum_ui_stubs.h
 sed -i 's/^#if !FELUCCA_FM4$/#if !FELUCCA_FM4 \&\& !FELUCCA_DRUMONLY/' tests/hostsim.c tests/ui_test.c tests/ui_render.c
 sed -i 's/if (fmp_charts - c0 != 32u)/if (!FELUCCA_DRUMONLY \&\& fmp_charts - c0 != 32u)/; s/if (fmp_charts - c0 != 384u)/if (!FELUCCA_DRUMONLY \&\& fmp_charts - c0 != 384u)/' tests/ui_render.c
+sed -i 's|^#include "../firmware/src/slicer.c"$|#if !FELUCCA_DRUMONLY\n#include "../firmware/src/slicer.c"\n#endif|' tests/hostsim.c tests/ui_test.c
 $PY - <<'PYEOF'
 p = "tests/ui_test.c"
 s = open(p, encoding="utf-8").read()

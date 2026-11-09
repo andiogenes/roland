@@ -58,3 +58,16 @@ static void phys_legacy(int16_t *e) { (void)e; }
 #define SMP_NSETS 0u
 static const uint8_t SMP_SET_ORIG[1];
 static int fop_page(uint32_t g) { (void)g; return 0; }   /* (FM6's operator pages: never shown) */
+
+/* ---- the SLICER insert (slicer.c): none. Its 32 KB of recording memory stays: the FX layer's buffer effects (REPEAT, REVERSE,
+ * FREEZE, OCT UP / DN, perform.c) borrow it as their loop ---- */
+#define SL_LEN 4096u
+static int16_t sl_buf[NTRK][SL_LEN] __attribute__((section(".pool")));
+static uint8_t sl_lent;
+static void slicer_start(void) {}
+static void slicer_track(const track_t *t, int32_t *b, uint32_t n) { (void)t; (void)b; (void)n; }
+static void slicer_track_sd(const track_t *t, int32_t *b, int32_t *sd, uint32_t n) { (void)t; (void)b; (void)sd; (void)n; }
+static int slicer_busy(const track_t *t) { (void)t; return 0; }
+#define SL_RAMP_LOG2 7            /* (the FX layer's ramps: perform.c) */
+#define SL_RAMP (1 << SL_RAMP_LOG2)
+#define SL_SLOPE (32768 / SL_RAMP)
