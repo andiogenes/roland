@@ -42,11 +42,14 @@ FLAGS="-DFELUCCA_DRUMONLY=1 -DFELUCCA_SLICE=0 -DFELUCCA_ADPCM=0"
 if [ "${FELUCCA_TR606:-1}" = 1 ]; then
     TR606_GAIN_DB="${TR606_GAIN_DB:--3}" $PY tools/gen_tr606.py $G/felucca_tr606.h; FLAGS="$FLAGS -DFELUCCA_TR606=1"
 fi
+DM=""; DRUMULATOR_DIR="${DRUMULATOR_DIR:-$ROOT/assets/drumulator}"
+[ -d "$DRUMULATOR_DIR" ] && [ -n "$(find "$DRUMULATOR_DIR" -iname '*.wav' | head -n 1)" ] && DM="$DRUMULATOR_DIR"
 HR=""; [ -d "$HR16_DIR" ] && [ -n "$(find "$HR16_DIR" -iname '*.wav' | head -n 1)" ] && HR="$HR16_DIR"
-if [ "${FELUCCA_ACOUSTIC:-1}" = 1 ] || [ -n "$HR" ]; then
-    ACOUSTIC_DIR="$([ "${FELUCCA_ACOUSTIC:-1}" = 1 ] && echo "$ROOT/assets/acoustic")" HR16_DIR="$HR" $PY tools/gen_hr16.py $G/felucca_hr16.h
+if [ "${FELUCCA_ACOUSTIC:-1}" = 1 ] || [ -n "$HR" ] || [ -n "$DM" ]; then
+    ACOUSTIC_DIR="$([ "${FELUCCA_ACOUSTIC:-1}" = 1 ] && echo "$ROOT/assets/acoustic")" HR16_DIR="$HR" DRUMULATOR_DIR="$DM" \
+        $PY tools/gen_hr16.py $G/felucca_hr16.h
     [ "${FELUCCA_ACOUSTIC:-1}" = 1 ] && FLAGS="$FLAGS -DFELUCCA_ACOUSTIC=1"
-    [ -n "$HR" ] && FLAGS="$FLAGS -DFELUCCA_HR16=1"
+    if [ -n "$HR" ] || [ -n "$DM" ]; then FLAGS="$FLAGS -DFELUCCA_HR16=1"; fi
 fi
 echo "host_render: flags $FLAGS"
 
@@ -84,7 +87,7 @@ if command -v ffmpeg >/dev/null; then
         ffmpeg -loglevel error -y -i "$w" -ac 1 -t 4.3 -b:a 96k "$OUT/mp3/$(basename "$w" .wav).mp3"
     done
 fi
-# PUBLISH=1: the pictures, and the clips of every kit except the HR-16 ones (that pack's licence is not known), into docs/
+# PUBLISH=1: the pictures, and the clips of every kit except the HR-16 and Drumulator ones (those packs' licences are not known), into docs/
 if [ "${PUBLISH:-0}" = 1 ]; then
     mkdir -p "$ROOT/docs/host-render" "$ROOT/docs/audio"
     cp "$OUT"/docs/*.png "$ROOT/docs/host-render/"
@@ -92,7 +95,7 @@ if [ "${PUBLISH:-0}" = 1 ]; then
     cp "$OUT/ui_lint.txt" "$ROOT/docs/host-render/ui_lint.txt"
     rm -f "$ROOT"/docs/audio/*.mp3
     for m in "$OUT"/mp3/kit_*.mp3; do
-        case "$m" in *HR-*) ;; *) cp "$m" "$ROOT/docs/audio/";; esac
+        case "$m" in *HR-*|*DRMU*) ;; *) cp "$m" "$ROOT/docs/audio/";; esac
     done
 fi
 echo "host_render: done -> $OUT"

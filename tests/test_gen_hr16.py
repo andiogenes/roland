@@ -66,8 +66,19 @@ def make_pack(d):
     put_wav(d / "readme_loop.wav", tone(44100, 0.2, 440, 0.1), 44100)
 
 
+DRUMU_NAMES = ["bass drm", "snare", "clap", "hi hat cld", "hi hat opn", "hi tom", "mid tom", "lo tom", "rim", "clave", "cow bell",
+               "cymbal"]
+
+
+def make_drumu(d, rate=15625, skip=()):
+    for i, n in enumerate(DRUMU_NAMES):
+        if n not in skip:
+            put_wav(d / f"drumu {n}-16k.wav", tone(rate, 0.2, 100 + 37 * i, 0.06), rate)
+            put_wav(d / f"drumu {n}.wav", tone(44100, 0.2, 100 + 37 * i, 0.06), 44100)   # (the full-rate set: ignored)
+
+
 def run(*args, env=None):
-    e = dict(os.environ, ACOUSTIC_DIR="")          # (the bundled acoustic kit is tested in test_acoustic.py)
+    e = dict(os.environ, ACOUSTIC_DIR="", DRUMULATOR_DIR="")   # (the bundled acoustic kit: test_acoustic.py)
     e.update(env or {})
     return subprocess.run([sys.executable, "-I", str(GEN), *args], capture_output=True, text=True, env=e)
 
@@ -206,6 +217,45 @@ int main(void) {
         r = run(str(out), env={"HR16_DIR": str(self.d / "pack"), "ACOUSTIC_DIR": ac, "HR16_BUDGET": "20000"})
         self.assertNotEqual(r.returncode, 0)                          # the acoustic samples alone are over
         self.assertIn("over the 20000 byte budget", r.stderr)
+
+    def test_drumulator_kits(self):
+        dm = self.d / "drumu"
+        make_drumu(dm)
+        out = self.d / "o.h"
+        r = run(str(out), env={"HR16_DIR": "", "DRUMULATOR_DIR": str(dm)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("3 kits (DRMU1, DRMU2, DRMU3), 12 samples", r.stdout)       # twelve sounds, three kits
+        t = out.read_text()
+        self.assertIn('X(0, "DRMU1", "DRUMU 1")', t)
+        self.assertIn('X(2, "DRMU3", "DRUMU 3")', t)
+        rates = {int(m) for m in re.findall(r"\d+u, \d+u, (\d+)u", t)}
+        self.assertEqual(rates, {round(15625 / 44100 * 65536)})                  # the 16k set, at its own rate
+        rows = [[int(v) for v in l.split("{")[1].split("}")[0].split(",")] for l in t.splitlines() if "/* DRMU" in l]
+        self.assertEqual(rows[0][:5], rows[1][:5])                                # the five shared lanes: the same samples
+        self.assertEqual(len({rows[0][5], rows[1][5], rows[2][5]}), 3)            # three different toms
+        self.assertEqual(rows[1][7], rows[2][7])                                  # DRMU2 and 3 share the cymbal
+
+    def test_drumulator_missing_sound_leaves_kits_out(self):
+        dm = self.d / "drumu"
+        make_drumu(dm, skip=("cymbal",))
+        r = run(str(self.d / "o.h"), env={"HR16_DIR": "", "DRUMULATOR_DIR": str(dm)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("1 kits (DRMU1)", r.stdout)                                  # DRMU2 and 3 need the cymbal
+        self.assertIn("DRMU2 left out: no file for cymbal", r.stderr)
+
+    def test_drumulator_is_dropped_after_the_hr16_kits(self):
+        dm = self.d / "drumu"
+        make_drumu(dm)
+        out = self.d / "o.h"
+        base = {"HR16_DIR": str(self.d / "pack"), "DRUMULATOR_DIR": str(dm)}
+        r = run(str(out), env=dict(base, HR16_BUDGET="30000"))                     # no HR-16 kit fits beside the Drumulator ones
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("dropping kit HR-B", r.stderr)
+        self.assertIn("dropping kit HR-A", r.stderr)
+        self.assertIn("3 kits (DRMU1, DRMU2, DRMU3)", r.stdout)
+        r = run(str(out), env=dict(base, HR16_BUDGET="2000"))                      # then the Drumulator's, last
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("over the 2000 byte budget", r.stderr)
 
     def test_budget_too_small(self):
         r = run(str(self.d / "o.h"), env={"HR16_DIR": str(self.d / "pack"), "HR16_BUDGET": "500"})

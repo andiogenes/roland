@@ -7,7 +7,7 @@
   gen_hr16.py OUT.h --preview DIR   also write what the firmware will play (decoded ADPCM) as WAV files into DIR
 
 Environment (when run by build.py): HR16_DIR the folder of WAVs, HR16_MAP a JSON file that picks the files by hand,
-HR16_BUDGET the most bytes of ADPCM data to embed (default 147456), ACOUSTIC_DIR the acoustic kit (default
+HR16_BUDGET the most bytes of ADPCM data to embed (default 196608), DRUMULATOR_DIR the Drumulator sounds (default assets/drumulator; empty: none), ACOUSTIC_DIR the acoustic kit (default
 assets/acoustic; empty: none; HR16_DIR empty: no HR-16 kits), HR16_RATE the stored sample rate (default 22050),
 HR16_MAX_KITS (default 6).
 
@@ -315,6 +315,38 @@ def plan_acoustic(folder):
     return [dict(name=n, preset=pn, lanes=lanes, treat=t, pack="ac") for t, (n, pn) in enumerate(TREATMENTS)]
 
 
+# The E-mu Drumulator kits (DRMU1..3) from a folder of its twelve sounds (assets/drumulator, git-ignored: the pack's licence is
+# not known here). Found by name ("drumu bass drm-16k.wav", ...); the 16k files, the original's rate, are used when both sets
+# are there, and every sound is stored at its own rate (no resampling up). Twelve sounds on eight lanes: three kits share them.
+DRUMU_NEEDLES = {"bass": "bass drm", "snare": "snare", "clap": "clap", "hhc": "hi hat cld", "hho": "hi hat opn",
+                 "rim": "rim", "clave": "clave", "cow": "cow bell", "cym": "cymbal", "hi": "hi tom", "mid": "mid tom",
+                 "lo": "lo tom"}
+DRUMU_KITS = [("DRMU1", "DRUMU 1", dict(TOM="mid", RIM="rim", BELL="cow")),
+              ("DRMU2", "DRUMU 2", dict(TOM="lo", RIM="clave", BELL="cym")),
+              ("DRMU3", "DRUMU 3", dict(TOM="hi", RIM="rim", BELL="cym"))]
+
+
+def plan_drumulator(folder):
+    files = [p for p in sorted(Path(folder).rglob("*")) if p.suffix.lower() == ".wav" and p.is_file()]
+    if any("16k" in p.name.lower() for p in files):
+        files = [p for p in files if "16k" in p.name.lower()]
+    found = {}
+    for key, needle in DRUMU_NEEDLES.items():
+        hit = [p for p in files if needle in p.stem.lower()]
+        if hit:
+            found[key] = hit[0]
+    kits = []
+    for name, preset, over in DRUMU_KITS:
+        base = dict(KICK="bass", SNARE="snare", CLAP="clap", HATCL="hhc", HATOP="hho")
+        base.update(over)
+        if all(v in found for v in base.values()):
+            kits.append(dict(name=name, preset=preset, lanes={l: found[v] for l, v in base.items()}, treat=0, pack="dm"))
+        else:
+            print(f"gen_hr16: {name} left out: no file for " + ", ".join(DRUMU_NEEDLES[v] for v in base.values() if v not in found),
+                  file=sys.stderr)
+    return kits
+
+
 # ------------------------------------------------------------------- build
 
 def build(kits, rate, budget):
@@ -331,6 +363,8 @@ def build(kits, rate, budget):
                     sr_out = ACOUSTIC_RATE.get(l, rate) if ac else rate
                     try:
                         x, sr = read_wav(kit["lanes"][l])
+                        if kit["pack"] == "dm":
+                            sr_out = min(sr, rate)             # the Drumulator's own rate, never resampled up
                         pcm = prepare(x, sr, l, sr_out, maxsec=ACOUSTIC_MAXSEC.get(l) if ac else None,
                                       fade_sec=ACOUSTIC_FADE.get(l, FADE_SEC) if ac else FADE_SEC,
                                       shape=ACOUSTIC_SHAPE.get(l) if ac else None)
@@ -345,11 +379,11 @@ def build(kits, rate, budget):
         total = sum(len(x["data"]) for x in samples)
         if total <= budget:
             break
-        hr = [i for i, k in enumerate(kits) if k["pack"] == "hr"]
+        hr = [i for i, k in enumerate(kits) if k["pack"] == "hr"] or [i for i, k in enumerate(kits) if k["pack"] == "dm"]
         if not hr:
             raise SystemExit(f"gen_hr16: the sample data is {total} bytes, over the {budget} byte budget "
                              f"(HR16_BUDGET higher)")
-        if len(hr) == 1 and not any(k["pack"] == "ac" for k in kits):
+        if len(kits) == 1:                                       # (never the last kit: that is an error, not an empty header)
             raise SystemExit(f"gen_hr16: one kit is {total} bytes, over the {budget} byte budget "
                              f"(HR16_RATE lower, e.g. 16000, or HR16_BUDGET higher)")
         print(f"gen_hr16: {total} bytes over the {budget} byte budget with {len(kits)} kits: dropping kit "
@@ -399,8 +433,9 @@ def main():
     env = os.environ.get
     hr_dir = env("HR16_DIR", "assets/hr16")
     ac_dir = env("ACOUSTIC_DIR", "assets/acoustic")
+    dm_dir = env("DRUMULATOR_DIR", "assets/drumulator")
     rate = int(env("HR16_RATE", "22050"))
-    budget = int(env("HR16_BUDGET", "147456"))
+    budget = int(env("HR16_BUDGET", "196608"))
     max_kits = int(env("HR16_MAX_KITS", "6"))
     if a.list:
         folder = a.out or hr_dir
@@ -416,6 +451,8 @@ def main():
     kits = []
     if ac_dir and Path(ac_dir).is_dir():
         kits += plan_acoustic(ac_dir)
+    if dm_dir and Path(dm_dir).is_dir():
+        kits += plan_drumulator(dm_dir)
     unknown = []
     if hr_dir and Path(hr_dir).is_dir() and any(Path(hr_dir).rglob("*.wav")):
         by_lane, unknown, _ = scan(hr_dir)

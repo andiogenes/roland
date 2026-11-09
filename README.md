@@ -18,7 +18,8 @@ Felucca's drum engine and its sequencer and offers nothing else: four drum track
 
 * **synthesized kits** (Felucca's own DRUM engine: DRUM, DEEP, TIGHT, PERC and the 80 / 10 / 66 / 55 / 77 machine kits),
 * **a TR-606 kit** (`TR606`), SLOOP's synthesized TR-606,
-* **SLOOP's acoustic drum set** (`ACOUS`, `AC-DP`, `AC-TI`, `AC-BR`, `AC-DU`): real drum recordings in five treatments, and
+* **SLOOP's acoustic drum set** (`ACOUS`, `AC-DP`, `AC-TI`, `AC-BR`, `AC-DU`): real drum recordings in five treatments,
+* **E-mu Drumulator kits** (`DRMU1`, `DRMU2`, `DRMU3`), made from the twelve Drumulator sounds you supply, and
 * **Alesis HR-16B sample kits** (`HR-A`, `HR-B`, ...), built from the WAV files of the
   [Cluster Sound HR-16B freebie](https://clustersound.com/product/freebies/hr-16b/).
 
@@ -43,6 +44,7 @@ the download or "view raw" button. All mono mp3.
 | `AC-TI` | the same with a quick decay | [kit_15_AC-TI.mp3](docs/audio/kit_15_AC-TI.mp3) |
 | `AC-BR` | the same, pitched up 2 semitones | [kit_16_AC-BR.mp3](docs/audio/kit_16_AC-BR.mp3) |
 | `AC-DU` | the same, down a semitone, darker and 8-bit | [kit_17_AC-DU.mp3](docs/audio/kit_17_AC-DU.mp3) |
+| `DRMU1` `DRMU2` `DRMU3` | the Drumulator kits | *no clips: the licence of that pack is not known to me, so its sounds are not published here* |
 | `HR-A` `HR-B` ... | the HR-16B kits | *no clips: that pack's licence is not known to me, so its sounds are not published here* |
 
 <p align="center"><img src="docs/host-render/audio_overview.png" alt="Waveform and spectrogram of each kit playing the same beat" width="100%"></p>
@@ -71,8 +73,9 @@ is the track's preset, and the host render sets the kit directly.</sub></p>
 | Sample importer (`overlay/tools/gen_hr16.py`) | **Tested**: 13 tests on synthetic WAVs and on the bundled recordings, including a gcc build of the generated header, a bit-exact check of the firmware's ADPCM decode against the generator's, and the budget logic. |
 | TR606 kit | SLOOP's synth code compiles warning-free and all 16 sounds render, end and choke (`tests/test_tr606.py`); not compared with SLOOP's own output. Its level against Felucca's kits is a guess (`TR606_GAIN_DB`, default -3). |
 | Acoustic kit | The sample player and its five treatments are cut out of the patch, compiled and run on the real recordings (`tests/test_acoustic.py`). |
+| Drumulator sounds | **Not included** (git-ignored; `assets/drumulator/`). Tested with the pack you supplied: its twelve sounds (the 16k set, 15,625 Hz) make three kits, all render at about the level of the synthesized kits with no clipping. Not heard. |
 | HR-16B samples | **Not included** (git-ignored). The importer was run on the Cluster Sound *Ableton Live* edition (`CS-HR-16B-Live.zip`, the WAVs in its `HR-16B/Samples/` folder, names like `cs_big_foot_kk.wav`): 47 files, 37 sorted into lanes. Other editions may name files differently: run `--list` and check. The 10 FX hits (bottles, pipe, ...) are not used. |
-| Flash size | **Unknown.** The 144 KiB sample budget (`HR16_BUDGET`) for all sample kits together is a guess about what fits beside Felucca; the build's linker check will tell, and HR-16 kits are dropped first to fit. Felucca's CC0 piano/flute/sax, the SLICE engine and now every other engine are dropped to make room (about 99 KB in the host
+| Flash size | **Unknown.** The 192 KiB sample budget (`HR16_BUDGET`) for all sample kits together is a guess about what fits beside Felucca; the build's linker check will tell, and HR-16 kits are dropped first to fit. Felucca's CC0 piano/flute/sax, the SLICE engine and now every other engine are dropped to make room (about 99 KB in the host
 measurement), so there is probably more room than the budget assumes: raise `HR16_BUDGET` once the real build says what is left. |
 
 ## Host render: what the firmware sources do (no FM-1 needed)
@@ -109,7 +112,8 @@ You need what Felucca's [BUILDING.md](https://github.com/hugelton/Felucca/blob/m
 Pillow and fonttools, the JieLi toolchain (`tools/get_toolchain.sh` in Felucca) and the AC79 SDK (Linux x86-64 runs it
 natively, otherwise Docker).
 
-1. Optional: download the HR-16B pack and put its WAV files in `assets/hr16/` (for the Live edition: everything in
+1. Optional: put the twelve Drumulator WAV files in `assets/drumulator/` (see the README there; the `...-16k.wav` set is used
+   when it is there) and download the HR-16B pack and put its WAV files in `assets/hr16/` (for the Live edition: everything in
    `HR-16B/Samples/`, not the `.adg` or `.asd` files). They are git-ignored; check the pack's licence before you share an
    image that contains them.
 2. Check how the files will be sorted into lanes:
@@ -122,12 +126,12 @@ natively, otherwise Docker).
    ./build_drum.sh            # -> out/roland-drum.fwsc
    ```
    It clones Felucca at the pinned commit, applies the patch, copies `overlay/`, and runs Felucca's own `build.sh` with
-   `FELUCCA_DRUMONLY=1 FELUCCA_SLICE=0 FELUCCA_TR606=1 FELUCCA_ACOUSTIC=1 FELUCCA_HR16=1`. With no HR-16 WAV files it builds
-   without the HR-16 kits; `FELUCCA_TR606=0` and `FELUCCA_ACOUSTIC=0` leave those kits out.
+   `FELUCCA_DRUMONLY=1 FELUCCA_SLICE=0 FELUCCA_TR606=1 FELUCCA_ACOUSTIC=1 FELUCCA_HR16=1`. With no HR-16 or Drumulator WAV files it
+   builds without those kits; `FELUCCA_TR606=0` and `FELUCCA_ACOUSTIC=0` leave those kits out.
 4. Install as Felucca's BUILDING.md describes (`tools/fm1_install.py out/roland-drum.fwsc`, or a local copy of its web
    installer).
 
-Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/test_acoustic.py` (27 tests; need `gcc`).
+Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/test_acoustic.py` (30 tests; need `gcc`).
 
 ## What changed from Felucca
 
@@ -160,23 +164,32 @@ Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/tes
   hats and cymbal keep a 32 kHz rate. **The 8 lanes carry one sample each**, so SLOOP's separate hi tom, ride, cowbell,
   conga, shaker, claves and tambourine are not in it: the TOM lane has the low tom (the other toms are its pitches), and
   the BELL lane the crash. Same knobs as the HR-16 kits.
-* ADPCM sample kits are mono, trimmed, normalised per lane and stored at 22.05 kHz (`HR16_RATE`), one-shot.
+* **`DRMU1`..`DRMU3`, the E-mu Drumulator**: its twelve sounds (bass drum, snare, clap, closed and open hat, three toms,
+  rim, clave, cow bell, cymbal) on eight lanes, so three kits share them: the same bass drum, snare, claps and hats, and
+  `DRMU1` mid tom, rim, cow bell; `DRMU2` lo tom, clave, cymbal; `DRMU3` hi tom, rim, cymbal. The importer finds the files by
+  name and uses the `-16k` set at its own 15,625 Hz (the sounds are short, 24,416 bytes of ADPCM in all). The sounds are
+  taken as they are in the files: they are not literally 8-bit there (normalised and resampled), so nothing 8-bit is
+  added. Same knobs as the other sample kits. The sounds are not in this repository.
+* ADPCM sample kits are mono, trimmed, normalised per lane and stored at 22.05 kHz (`HR16_RATE`; the Drumulator ones at
+  their own rate), one-shot.
 * The other build modes are untouched: with `FELUCCA_DRUMONLY=0` the firmware is Felucca's, and the whole tree type-checks
   in both modes (`tests/host_size.sh`).
 
 Kit k of the HR-16 pack takes the k-th file of each lane (wrapping), up to `HR16_MAX_KITS` (6). All sample kits share
-`HR16_BUDGET` (144 KiB by default). The acoustic kit comes first and is never dropped (it takes about 50 KiB); HR-16 kits are
-dropped from the end to fit (the three of the Live edition together take about 89 KiB).
+`HR16_BUDGET` (192 KiB by default; the other engines' removal made room, but the real build has not said how much). The order
+is acoustic, Drumulator, HR-16; the acoustic kit is never dropped (about 50 KiB), the Drumulator ones take about 24 KiB, and kits
+are dropped from the end to fit: HR-16 kits first (the five that fit with the rest take about 112 KiB), then the Drumulator ones.
 
 ## Credits
 
 [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita / Hügelton Instruments; [SLOOP](https://github.com/isod89/sloop-fm1)
 by isod89 (the TR-606 kit and the synth that plays it, the acoustic kit and its treatments);
-the acoustic recordings are Versilian Studios' VCSL (CC0); the Alesis HR-16B samples are Cluster Sound's.
+the acoustic recordings are Versilian Studios' VCSL (CC0); the Alesis HR-16B samples are Cluster Sound's; the Drumulator
+sounds are as you supplied them ("drm-EMU Drumulator"; I do not know who made that set of files).
 
 ## Licence
 
 GPL-3.0-only, as Felucca; see `LICENSE`. The patch is a derivative of Felucca. Felucca's engines and hardware layer
 keep their own licences ([LICENSING.md](https://github.com/hugelton/Felucca/blob/main/LICENSING.md)). M-VAVE, FM-1, Alesis,
-Roland (TR-606) are trademarks of their owners; this project is not affiliated with them or with Felucca's or SLOOP's
+Roland (TR-606), E-mu and Drumulator are trademarks of their owners; this project is not affiliated with them or with Felucca's or SLOOP's
 authors.

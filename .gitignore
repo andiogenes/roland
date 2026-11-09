@@ -6,3 +6,7 @@ assets/hr16/*.WAV
 assets/hr16/**/*.WAV
 assets/hr16/*.zip
 __pycache__/
+assets/drumulator/*.wav
+assets/drumulator/**/*.wav
+assets/drumulator/*.WAV
+assets/drumulator/*.zip

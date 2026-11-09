@@ -3,10 +3,11 @@
 # Build the drum machine firmware for the M-VAVE FM-1: Felucca (pinned) + patches/felucca-drum.patch + overlay/.
 #   ./build_drum.sh
 # Environment:
+#   DRUMULATOR_DIR  folder of the E-mu Drumulator's twelve WAV files (default assets/drumulator): the DRMU1..3 kits
 #   HR16_DIR        folder of Alesis HR-16B WAV files (default assets/hr16). Without WAVs there: no HR-16 kits.
 #   FELUCCA_ACOUSTIC 1 (default): add SLOOP's acoustic kit (assets/acoustic, CC0) in its five treatments; 0: leave it out
 #   HR16_MAP        JSON file that picks the files of each kit by hand (see overlay/tools/gen_hr16.py)
-#   HR16_BUDGET     most bytes of sample data to embed, all sample kits together (default 147456)
+#   HR16_BUDGET     most bytes of sample data to embed, all sample kits together (default 196608)
 #   JIELI_TOOLCHAIN, AC79_SDK   as Felucca's BUILDING.md (tools/get_toolchain.sh and the SDK clone there)
 #   FELUCCA_TR606   1 (default): add SLOOP's TR-606 kit; 0: leave it out.  TR606_GAIN_DB: its level in dB (default -3)
 #   KEEP_CC0=1      keep Felucca's CC0 piano / flute / sax in the image (dropped by default: a drum machine does not use
@@ -41,6 +42,13 @@ if [ -d "$HR16_DIR" ] && [ -n "$(find "$HR16_DIR" -iname '*.wav' | head -n 1)" ]
 else
     export FELUCCA_HR16=0 HR16_DIR=""
     echo "build_drum: no WAV files in $HR16_DIR: no HR-16 kits"
+fi
+DRUMULATOR_DIR="${DRUMULATOR_DIR:-$ROOT/assets/drumulator}"
+if [ -d "$DRUMULATOR_DIR" ] && [ -n "$(find "$DRUMULATOR_DIR" -iname '*.wav' | head -n 1)" ]; then
+    export DRUMULATOR_DIR FELUCCA_HR16=1                 # (the DRMU kits are sample kits from a folder, as the HR-16 ones)
+    echo "build_drum: Drumulator sounds from $DRUMULATOR_DIR"
+else
+    export DRUMULATOR_DIR=""
 fi
 export FELUCCA_ACOUSTIC="${FELUCCA_ACOUSTIC:-1}"      # SLOOP's acoustic kit and its treatments (assets/acoustic, CC0)
 if [ "$FELUCCA_ACOUSTIC" = 1 ]; then

@@ -32,7 +32,7 @@ class Acoustic(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         d = Path(cls.tmp.name)
-        env = dict(os.environ, HR16_DIR="", ACOUSTIC_DIR=str(ROOT / "assets" / "acoustic"))
+        env = dict(os.environ, HR16_DIR="", DRUMULATOR_DIR="", ACOUSTIC_DIR=str(ROOT / "assets" / "acoustic"))
         r = subprocess.run([sys.executable, "-I", str(ROOT / "overlay" / "tools" / "gen_hr16.py"), str(d / "felucca_hr16.h")],
                            capture_output=True, text=True, env=env)
         assert r.returncode == 0, r.stderr + r.stdout
