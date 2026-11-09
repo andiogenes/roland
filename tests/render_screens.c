@@ -31,5 +31,21 @@ int main(int argc, char **argv)
             write_ppm(out, "GREY", name);
         }
     }
+    {   /* the same grid and KIT page in every palette (GREY MONO GREEN PAPER NIGHT) */
+        static const char *const PALS[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};
+        uint32_t q, pi;
+        for (q = 0; q < sizeof PALS / sizeof PALS[0]; q++) {
+            for (pi = 0; pi < NPALETTES && strcmp(UI_PALETTES[pi].name, PALS[q]); pi++)
+                ;
+            if (pi == NPALETTES)
+                continue;
+            setup(S_DRUM);
+            trk[3].p[P_E0] = (int16_t)DK_606;
+            go_page(GR_ROLL); ui.cursor = 4; ui.lane = 1; trk[3].seq_idx = 9;
+            pal(pi);
+            draw(S_DRUM);
+            write_ppm(out, PALS[q], "grid_TR606");
+        }
+    }
     return 0;
 }

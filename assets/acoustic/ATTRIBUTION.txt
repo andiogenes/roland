@@ -13,3 +13,8 @@ Sam Gossner, CC0-1.0). Thanks to Versilian Studios and to isod89. Per SLOOP's AT
 15_ohat_HitO.wav                  <- VCSL: Idiophones/Struck Idiophones/Hi-Hat Cymbal/HiHat_HitO_rr1_Mid.wav
 16_tomlo_TomL_HitS_v4.wav         <- VCSL: Membranophones/Struck Membranophones/Tom 2/Stick/TomL_HitS_v4_rr1_Mid.wav
 18_crash_susCymb2_hit_f1.wav      <- VCSL: Idiophones/Struck Idiophones/Suspended Cymbal 2/susCymb2_hit_f1.wav
+
+For the DRUMU kit (E-mu Drumulator style), two more of the same set, which zp12 (https://github.com/zvenson/zp12,
+assets/samples-cc0/KIT, the same files as SLOOP's) uses in its factory kit:
+03_Claves1_Hit_v2_rr1_Mid.wav     <- VCSL: Idiophones/Struck Idiophones/Claves/Claves1_Hit_v2_rr1_Mid.wav
+20_cowbell_Cowbell1_Normal_v3.wav <- VCSL: Idiophones/Struck Idiophones/Cowbells/Cowbell1_Normal_v3_rr1_Mid.wav

@@ -38,7 +38,7 @@ index 2c1b980..106fef3 100644
   * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
   * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
 diff --git a/firmware/src/eng_drum.c b/firmware/src/eng_drum.c
-index eefafea..58f934f 100644
+index eefafea..96e4eb0 100644
 --- a/firmware/src/eng_drum.c
 +++ b/firmware/src/eng_drum.c
 @@ -32,17 +32,54 @@
@@ -52,7 +52,7 @@ index eefafea..58f934f 100644
 + *
 + * Sample kits (FELUCCA_HR16, FELUCCA_ACOUSTIC; build/gen/felucca_hr16.h made by tools/gen_hr16.py from the HR-16 WAV files
 + * and SLOOP's CC0 acoustic recordings, assets/acoustic): KIT values
-+ * from DK_HR on play one recorded sample per lane (IMA ADPCM, one-shot) instead of the synthesized lane: the same GM map,
++ * from DK_HR on play one recorded sample per lane (IMA ADPCM or 8-bit PCM, one-shot) instead of the synthesized lane: the same GM map,
 + * lanes, grid, mutes, LEVELs, choke and ACC-free velocity. TUNE (the sample's pitch, with the GM note's offset), TONE (below
 + * 64: darker), DECY (below 64: shorter) and DRV apply; SNAP, KICK and ACC do nothing there. The acoustic kit comes in SLOOP's five treatments, one
 + * sample set played five ways (TREAT_*, hr_run). A hit keeps the sample it was struck with. The sample state lives in the voice (hr_*), not in the lane, so the part's engine memory is as it was.
@@ -143,7 +143,7 @@ index eefafea..58f934f 100644
  }
  
  /* the lane's name as the track's KIT plays it (5 characters at most) */
-@@ -197,6 +245,153 @@ static drum_lane_t *drum_lane_of(track_t *t, const voice_t *v)
+@@ -197,6 +245,161 @@ static drum_lane_t *drum_lane_of(track_t *t, const voice_t *v)
      return L->owner == i + 1u ? L : 0;
  }
  
@@ -153,7 +153,8 @@ index eefafea..58f934f 100644
 + * eng_sample.c's (IMA_STEP / IMA_IDX). A sample voice keeps its state in the voice: s[0] the lane (as a synthesized hit),
 + * s[1] step index, s[2] previous and s[3] current output, s[4] the sample | HRV_ON | HRV_END, s[5] predictor, s[6] the
 + * decay envelope (Q15), s[7] the TONE filter; ph[0] the position, ph[1] its fraction (Q16), ph[2] 1 = choked */
-+typedef struct { uint32_t off, n, rate; } hr_samp_t;   /* byte offset in HR16_DATA, samples, source rate / 44100 (Q16) */
++typedef struct { uint32_t off, n, rate, fmt; } hr_samp_t;   /* byte offset in HR16_DATA, samples, source rate / 44100 (Q16),
++                                                          * fmt: 0 = IMA ADPCM, else 8-bit PCM: a signed byte times fmt */
 +static const hr_samp_t HR16_SAMP[HR16_NSAMP] = {HR16_SAMP_INIT};
 +#define HRV_ON (1 << 16)
 +#define HRV_END (1 << 17)
@@ -165,9 +166,16 @@ index eefafea..58f934f 100644
 +
 +static inline int32_t hr_next(const hr_samp_t *z, voice_t *v)
 +{
-+    uint32_t pos = v->ph[0], b = HR16_DATA[z->off + (pos >> 1)];
-+    uint32_t code = (pos & 1u) ? (b >> 4) : (b & 15u);
-+    int32_t step = IMA_STEP[(uint32_t)v->s[1] <= 88u ? v->s[1] : 88], vd = step >> 3;
++    uint32_t pos = v->ph[0], b = HR16_DATA[z->off + (z->fmt ? pos : pos >> 1)], code;
++    int32_t step, vd;
++    if (z->fmt) {                                        /* 8-bit PCM (the DRUMU kit): the byte, scaled */
++        v->ph[0] = pos + 1u;
++        v->s[5] = (int32_t)(int8_t)b * (int32_t)z->fmt;
++        return v->s[5];
++    }
++    code = (pos & 1u) ? (b >> 4) : (b & 15u);
++    step = IMA_STEP[(uint32_t)v->s[1] <= 88u ? v->s[1] : 88];
++    vd = step >> 3;
 +    if (code & 4u)
 +        vd += step;
 +    if (code & 2u)
@@ -297,7 +305,7 @@ index eefafea..58f934f 100644
  /* Different GM pitches on a lane still share its one sounding voice. */
  static voice_t *drum_reuse(track_t *t, uint32_t note)
  {
-@@ -222,6 +417,35 @@ static void drum_note_on(track_t *t, voice_t *v)
+@@ -222,6 +425,35 @@ static void drum_note_on(track_t *t, voice_t *v)
      if (L->owner == i + 1u)                              /* this voice played another lane: it stops there */
          L->owner = 0;
      L = &K[lane];
@@ -333,7 +341,7 @@ index eefafea..58f934f 100644
      if (L->role != role || L->v.type != dv_run_type(role)) {   /* another drum on this lane: from rest */
          dv_init(&L->v, role);
          L->key.type = 0xFF;
-@@ -247,7 +471,7 @@ static int32_t drum_amp(track_t *t, voice_t *v, int32_t adsr)
+@@ -247,7 +479,7 @@ static int32_t drum_amp(track_t *t, voice_t *v, int32_t adsr)
      (void)adsr;
      if (!v->active)                                      /* (taken for another part: env_tick ended it) */
          return 0;
@@ -342,7 +350,7 @@ index eefafea..58f934f 100644
          v->active = v->gate = 0;
          v->stage = 0;
          v->env = 0;
-@@ -278,22 +502,35 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
+@@ -278,22 +510,35 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
      if (n > CTL)
          n = CTL;
      r = L->role;
@@ -393,7 +401,7 @@ index eefafea..58f934f 100644
      if ((drum_mute[(uint32_t)(t - trk) % NPART] >> ((uint32_t)v->s[0] & (DV_NLANE - 1u))) & 1u)
          return;                                          /* (a muted lane rings on unheard) */
      if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
-@@ -322,6 +559,12 @@ static const preset_t DRUM_PRESETS[] = {
+@@ -322,6 +567,12 @@ static const preset_t DRUM_PRESETS[] = {
      {"DEEP KIT", {DK_DEEP, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 28), PAT(12)},
      {"TIGHT KIT", {DK_TIGHT, 64, 64, 56, 64, 100, 0, 16}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 8), PAT(12)},
      {"PERC KIT", {DK_PERC, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 24), PAT(12)},

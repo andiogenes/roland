@@ -64,5 +64,22 @@ build/host/render_screens "$OUT/screens"
 mkdir -p build/ui_new/ppm build/ui_slot
 build/host/ui_render build/ui_new build/ui_slot 2>&1 | tail -4 | tee "$OUT/ui_lint.txt"
 $PY "$ROOT/tests/host_sheets.py" "$OUT/screens" "$OUT/kits" "$OUT/docs"
-command -v ffmpeg >/dev/null && ffmpeg -loglevel error -y -i "$OUT/kits/all_kits.wav" -b:a 192k "$OUT/kits/all_kits.mp3" || true
+if command -v ffmpeg >/dev/null; then
+    ffmpeg -loglevel error -y -i "$OUT/kits/all_kits.wav" -b:a 192k "$OUT/kits/all_kits.mp3"
+    mkdir -p "$OUT/mp3"
+    for w in "$OUT"/kits/kit_*.wav; do
+        ffmpeg -loglevel error -y -i "$w" -ac 1 -t 4.3 -b:a 96k "$OUT/mp3/$(basename "$w" .wav).mp3"
+    done
+fi
+# PUBLISH=1: the pictures, and the clips of every kit except the HR-16 ones (that pack's licence is not known), into docs/
+if [ "${PUBLISH:-0}" = 1 ]; then
+    mkdir -p "$ROOT/docs/host-render" "$ROOT/docs/audio"
+    cp "$OUT"/docs/*.png "$ROOT/docs/host-render/"
+    cp "$OUT/kits/levels.txt" "$ROOT/docs/host-render/kit_levels.txt"
+    cp "$OUT/ui_lint.txt" "$ROOT/docs/host-render/ui_lint.txt"
+    rm -f "$ROOT"/docs/audio/*.mp3
+    for m in "$OUT"/mp3/kit_*.mp3; do
+        case "$m" in *HR-*) ;; *) cp "$m" "$ROOT/docs/audio/";; esac
+    done
+fi
 echo "host_render: done -> $OUT"

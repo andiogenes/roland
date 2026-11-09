@@ -29,8 +29,21 @@ def sheet(kits, kinds, name, scale):
     img.save(out / name)
 
 
-sheet(["TR606", "ACOUS", "AC-DU", "HR-A"], ["grid", "kit", "hit"], "screens_new_kits.png", 1)
+sheet(["TR606", "ACOUS", "DRUMU", "HR-A"], ["grid", "kit", "hit"], "screens_new_kits.png", 1)
 sheet(["STD", "TR606", "ACOUS"], ["grid"], "screens_grid.png", 2)
+
+# the same screen in every palette
+pals = [p for p in ("GREY", "MONO", "GREEN", "PAPER", "NIGHT") if (shots / f"{p}_grid_TR606.png").exists()]
+if pals:
+    img = Image.new("RGB", (240 * len(pals) + 8 * (len(pals) - 1), 256), (24, 24, 24))
+    dr = ImageDraw.Draw(img)
+    for i, pl in enumerate(pals):
+        img.paste(Image.open(shots / f"{pl}_grid_TR606.png"), (i * 248, 16))
+        dr.text((i * 248 + 4, 2), pl, fill=(200, 200, 200))
+    img.save(out / "screens_palettes.png")
+# one screen big
+Image.open(shots / "GREY_grid_TR606.png").resize((720, 720), Image.NEAREST).save(out / "screen_grid_big.png")
+Image.open(shots / "GREY_kit_DRUMU.png").resize((720, 720), Image.NEAREST).save(out / "screen_kit_big.png")
 
 # waveform + spectrogram per kit
 kits = [(f.stem, f.stem.split("_", 2)[2]) for f in sorted(audio.glob("kit_*.wav"))]

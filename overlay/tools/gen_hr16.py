@@ -7,8 +7,9 @@
   gen_hr16.py OUT.h --preview DIR   also write what the firmware will play (decoded ADPCM) as WAV files into DIR
 
 Environment (when run by build.py): HR16_DIR the folder of WAVs, HR16_MAP a JSON file that picks the files by hand,
-HR16_BUDGET the most bytes of ADPCM data to embed (default 147456), ACOUSTIC_DIR the acoustic kit (default
-assets/acoustic; empty: none; HR16_DIR empty: no HR-16 kits), HR16_RATE the stored sample rate (default 22050),
+HR16_BUDGET the most bytes of sample data to embed (default 163840), ACOUSTIC_DIR the acoustic kit (default
+assets/acoustic; empty: none; HR16_DIR empty: no HR-16 kits), DRUMULATOR=0 leaves the DRUMU kit (8-bit, from
+assets/acoustic) out, HR16_RATE the stored sample rate (default 22050),
 HR16_MAX_KITS (default 6).
 
 Each lane of the DRUM engine (KICK SNARE CLAP HATCL HATOP TOM RIM BELL) takes one file per kit. Files are sorted into lanes
@@ -156,6 +157,53 @@ def prepare(x, rate, lane, dst_rate, maxsec=None, fade_sec=FADE_SEC, shape=None)
     peak = max(abs(v) for v in x) or 1.0
     g = PEAK[lane] / peak
     return [int(round(v * g)) for v in x]
+
+
+def resample_zp12(x, src, dst):
+    """zp12's resampler (zvenson/zp12 tools/gen_kit.py resample12, GPL-3.0): a Hann-windowed sinc low-pass at 0.45 of the lower
+    rate (a sampler's input filter), the weights normalised; floats in, floats out (zp12 then rounds to 12 bit)"""
+    H = 24
+    fc = 0.45 * min(src, dst) / src
+    ratio = src / dst
+    k = len(x) * dst // src
+    span = math.ceil(H * ratio)
+    out = []
+    for j in range(k):
+        t = j * ratio
+        c = int(math.floor(t))
+        acc = wsum = 0.0
+        for i in range(c - span + 1, c + span + 1):
+            d = t - i
+            a = 2.0 * fc * d
+            sinc = 1.0 if a == 0 else math.sin(math.pi * a) / (math.pi * a)
+            gw = 2.0 * fc * sinc * (0.5 + 0.5 * math.cos(math.pi * d / (span + 1)))
+            if 0 <= i < len(x):
+                acc += x[i] * gw
+            wsum += gw
+        out.append(acc / wsum)
+    return out
+
+
+def prepare_pcm8(x, rate, lane, secs, dst_rate):
+    """a Drumulator-style sound: mono floats -> (signed 8-bit values -127..127, step): DC removed, the head trimmed, cut to
+    `secs`, faded, zp12's resampler to dst_rate, the peak at full 8-bit scale. step = the stored value's weight in Q15
+    (PEAK[lane] / 127), so the lane keeps its level and the sound its 8 bits"""
+    if not x:
+        raise ValueError("empty sample")
+    mean = sum(x) / len(x)
+    x = [v - mean for v in x]
+    peak = max(abs(v) for v in x)
+    if peak < 1e-6:
+        raise ValueError("silent sample")
+    a = next(i for i, v in enumerate(x) if abs(v) > peak * SILENCE)
+    x = x[a:a + max(1, int(secs * rate))]
+    y = resample_zp12(x, rate, dst_rate)
+    fade = min(len(y), max(1, int(0.008 * dst_rate)))
+    for k in range(fade):
+        y[len(y) - 1 - k] *= k / fade
+    pk = max(abs(v) for v in y) or 1.0
+    q = [int(round(v / pk * 127)) for v in y]
+    return q, max(1, int(round(PEAK[lane] / 127.0)))
 
 
 def ima_encode(pcm):
@@ -315,6 +363,27 @@ def plan_acoustic(folder):
     return [dict(name=n, preset=pn, lanes=lanes, treat=t, pack="ac") for t, (n, pn) in enumerate(TREATMENTS)]
 
 
+# The DRUMU kit, an E-mu Drumulator in spirit: the same CC0 recordings zp12 (zvenson/zp12) builds its factory kit from, through
+# its resampler, as 8-bit PCM at zp12's 26.04 kHz and cut short. The Drumulator is described as 8-bit with very short sample
+# times; its real sample rate, and whether its 8 bits were linear, were not found: linear here. None of E-mu's audio is used.
+DRUMU_FILES = {"KICK": "10_kick_BDrumNew_hit_v5.wav", "SNARE": "11_snare_Snare2_HitSN_v7.wav",
+               "CLAP": "13_clap_Clap_rr1.wav", "HATCL": "14_hihat_HitC_v3.wav", "HATOP": "15_ohat_HitO.wav",
+               "TOM": "16_tomlo_TomL_HitS_v4.wav", "RIM": "03_Claves1_Hit_v2_rr1_Mid.wav",
+               "BELL": "20_cowbell_Cowbell1_Normal_v3.wav"}
+DRUMU_SECS = {"KICK": 0.30, "SNARE": 0.22, "CLAP": 0.20, "HATCL": 0.08, "HATOP": 0.25, "TOM": 0.25, "RIM": 0.08, "BELL": 0.15}
+DRUMU_RATE = 26040
+
+
+def plan_drumulator(folder):
+    lanes = {}
+    for l, f in DRUMU_FILES.items():
+        p = Path(folder) / f
+        if not p.is_file():
+            return []                                  # (the kit needs all eight: leave it out)
+        lanes[l] = p
+    return [dict(name="DRUMU", preset="E-MU DRM", lanes=lanes, treat=0, pack="dm")]
+
+
 # ------------------------------------------------------------------- build
 
 def build(kits, rate, budget):
@@ -331,25 +400,30 @@ def build(kits, rate, budget):
                     sr_out = ACOUSTIC_RATE.get(l, rate) if ac else rate
                     try:
                         x, sr = read_wav(kit["lanes"][l])
-                        pcm = prepare(x, sr, l, sr_out, maxsec=ACOUSTIC_MAXSEC.get(l) if ac else None,
-                                      fade_sec=ACOUSTIC_FADE.get(l, FADE_SEC) if ac else FADE_SEC,
-                                      shape=ACOUSTIC_SHAPE.get(l) if ac else None)
+                        if kit["pack"] == "dm":
+                            q, step = prepare_pcm8(x, sr, l, DRUMU_SECS[l], DRUMU_RATE)
+                            data, dec, fmt, sr_out, pcm = bytes(v & 255 for v in q), [v * step for v in q], step, DRUMU_RATE, q
+                        else:
+                            pcm = prepare(x, sr, l, sr_out, maxsec=ACOUSTIC_MAXSEC.get(l) if ac else None,
+                                          fade_sec=ACOUSTIC_FADE.get(l, FADE_SEC) if ac else FADE_SEC,
+                                          shape=ACOUSTIC_SHAPE.get(l) if ac else None)
+                            data, dec = ima_encode(pcm)
+                            fmt = 0
                     except ValueError as e:
                         raise SystemExit(f"gen_hr16: {kit['lanes'][l]}: {e}")
-                    data, dec = ima_encode(pcm)
                     order[key] = len(samples)
                     samples.append({"lane": l, "path": kit["lanes"][l], "n": len(pcm), "data": data, "dec": dec,
-                                    "rate": sr_out})
+                                    "rate": sr_out, "fmt": fmt})
                 row.append(order[key])
             kit_idx.append(row)
         total = sum(len(x["data"]) for x in samples)
         if total <= budget:
             break
-        hr = [i for i, k in enumerate(kits) if k["pack"] == "hr"]
+        hr = [i for i, k in enumerate(kits) if k["pack"] == "hr"] or [i for i, k in enumerate(kits) if k["pack"] == "dm"]
         if not hr:
             raise SystemExit(f"gen_hr16: the sample data is {total} bytes, over the {budget} byte budget "
                              f"(HR16_BUDGET higher)")
-        if len(hr) == 1 and not any(k["pack"] == "ac" for k in kits):
+        if len(hr) == 1 and kits[hr[0]]["pack"] == "hr" and not any(k["pack"] != "hr" for k in kits):
             raise SystemExit(f"gen_hr16: one kit is {total} bytes, over the {budget} byte budget "
                              f"(HR16_RATE lower, e.g. 16000, or HR16_BUDGET higher)")
         print(f"gen_hr16: {total} bytes over the {budget} byte budget with {len(kits)} kits: dropping kit "
@@ -368,10 +442,10 @@ def header(kits, samples, kit_idx):
          f"/* {len(kits)} kits, {len(samples)} samples, {len(blob)} bytes of IMA ADPCM */",
          f"#define HR16_NKITS {len(kits)}",
          f"#define HR16_NSAMP {len(samples)}"]
-    L.append("#define HR16_SAMP_INIT \\")                  # {byte offset, samples, source rate / 44100 (Q16)}
+    L.append("#define HR16_SAMP_INIT \\")                  # {byte offset, samples, source rate / 44100 (Q16), fmt}
     for i, x in enumerate(samples):
         q16 = int(round(x["rate"] / 44100.0 * 65536))
-        L.append(f"    {{{offs[i]}u, {x['n']}u, {q16}u}}{',' if i + 1 < len(samples) else ''} /* {x['lane']} {x['path'].name} */ \\")
+        L.append(f"    {{{offs[i]}u, {x['n']}u, {q16}u, {x['fmt']}u}}{',' if i + 1 < len(samples) else ''} /* {x['lane']} {x['path'].name} */ \\")
     L.append("")
     L.append("static const uint8_t HR16_KIT[HR16_NKITS][8] = {")
     for k, row in zip(kits, kit_idx):
@@ -400,7 +474,7 @@ def main():
     hr_dir = env("HR16_DIR", "assets/hr16")
     ac_dir = env("ACOUSTIC_DIR", "assets/acoustic")
     rate = int(env("HR16_RATE", "22050"))
-    budget = int(env("HR16_BUDGET", "147456"))
+    budget = int(env("HR16_BUDGET", "163840"))
     max_kits = int(env("HR16_MAX_KITS", "6"))
     if a.list:
         folder = a.out or hr_dir
@@ -416,6 +490,8 @@ def main():
     kits = []
     if ac_dir and Path(ac_dir).is_dir():
         kits += plan_acoustic(ac_dir)
+        if env("DRUMULATOR", "1") != "0":
+            kits += plan_drumulator(ac_dir)
     unknown = []
     if hr_dir and Path(hr_dir).is_dir() and any(Path(hr_dir).rglob("*.wav")):
         by_lane, unknown, _ = scan(hr_dir)

@@ -15,14 +15,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "overlay" / "tools"))
 import gen_hr16 as g  # noqa: E402
 
-NAMES = ["ACOUS", "AC-DP", "AC-TI", "AC-BR", "AC-DU"]
+NAMES = ["ACOUS", "AC-DP", "AC-TI", "AC-BR", "AC-DU", "DRUMU"]
 
 
 def player_source():
     """the sample player as the patch adds it, from the HR-16 section's start to its #else"""
     patch = (ROOT / "patches" / "felucca-drum.patch").read_text()
     added = "\n".join(l[1:] for l in patch.splitlines() if l.startswith("+") and not l.startswith("+++"))
-    a = added.index("typedef struct { uint32_t off, n, rate; } hr_samp_t;")
+    a = added.index("typedef struct { uint32_t off, n, rate, fmt; } hr_samp_t;")
     b = added.index("#else\n#define HRV_ON 0", a)
     return added[a:b]
 
@@ -57,23 +57,28 @@ class Acoustic(unittest.TestCase):
             f = l.split()
             if f[0] == "C":
                 res["choke"] = int(f[1])
+            elif f[0] == "D":
+                res.setdefault("pcm8", {})[(int(f[1]), int(f[2]))] = dict(fmt=int(f[3]), n=int(f[4]), distinct=int(f[5]),
+                                                                          bad=int(f[6]), sum=int(f[7]))
             else:
                 res[(int(f[0]), int(f[1]))] = dict(ended=int(f[2]), peak=int(f[3]), bad=int(f[4]))
         return res
 
     def test_generated(self):
-        self.assertIn("5 kits", self.gen_out)
-        self.assertIn("#define HR16_NKITS 5", self.header)
-        self.assertIn("HR16_TREAT[HR16_NKITS] = {0, 1, 2, 3, 4}", self.header)
+        self.assertIn("6 kits", self.gen_out)
+        self.assertIn("#define HR16_NKITS 6", self.header)
+        self.assertIn("HR16_TREAT[HR16_NKITS] = {0, 1, 2, 3, 4, 0}", self.header)
         for i, n in enumerate(NAMES):
             self.assertIn(f'X({i}, "{n}"', self.header)
-        self.assertIn("#define HR16_NSAMP 8", self.header)               # five kits, one set of eight samples
-        rates = {int(m) for m in re.findall(r"\d+u, \d+u, (\d+)u", self.header)}
-        self.assertEqual(rates, {round(22050 / 44100 * 65536), round(32000 / 44100 * 65536)})
+        self.assertIn("#define HR16_NSAMP 16", self.header)              # the acoustic set (8) for five kits, DRUMU's own 8
+        rows = re.findall(r"\{(\d+)u, (\d+)u, (\d+)u, (\d+)u\}", self.header)
+        self.assertEqual({int(r[2]) for r in rows}, {round(22050 / 44100 * 65536), round(32000 / 44100 * 65536),
+                                                     round(26040 / 44100 * 65536)})
+        self.assertEqual([int(r[3]) > 0 for r in rows], [False] * 8 + [True] * 8)   # fmt: ADPCM, then 8-bit PCM
 
     def test_every_sound_plays_and_ends(self):
         r = self.play()
-        for kit in range(5):
+        for kit in range(6):
             for lane in range(8):
                 v = r[(kit, lane)]
                 self.assertGreater(v["peak"], 2000, (kit, lane, v))
@@ -92,6 +97,31 @@ class Acoustic(unittest.TestCase):
             self.assertEqual(plain["bad"], 0)                             # (only DUST is counted)
         self.assertLess(r[(2, 7)]["ended"], r[(0, 7)]["ended"] * 0.8)     # TIGHT cuts the crash well short
         self.assertLess(r[(1, 1)]["peak"], r[(0, 1)]["peak"])             # DEEP's low-pass takes the snare's peak down
+
+    def test_drumu_is_8_bit_and_short(self):
+        d = self.play()["pcm8"]
+        self.assertEqual(len(d), 8)
+        for (kit, lane), v in d.items():
+            self.assertEqual(kit, 5)
+            self.assertEqual(v["bad"], 0, (lane, v))                   # every value a whole step of the byte
+            self.assertLessEqual(v["distinct"], 255, (lane, v))        # 8 bits
+            self.assertGreater(v["distinct"], 100, (lane, v))          # and used (full scale)
+        # the C decode equals the bytes the header holds
+        blob = bytes(int(v) for v in re.search(r"HR16_DATA\[\d+\] = \{(.*?)\};", self.header, re.S).group(1).replace("\n", " ").replace(",", " ").split())
+        rows = [(int(a), int(b), int(c), int(f)) for a, b, c, f in re.findall(r"\{(\d+)u, (\d+)u, (\d+)u, (\d+)u\}", self.header)]
+        kit = [[int(v) for v in l.split("{")[1].split("}")[0].split(",")] for l in self.header.splitlines()
+               if "/* DRUMU:" in l][0]
+        for lane in range(8):
+            off, n, _, fmt = rows[kit[lane]]
+            want = sum((b - 256 if b > 127 else b) * fmt for b in blob[off:off + n])
+            self.assertEqual(d[(5, lane)]["sum"], want, lane)
+            self.assertEqual(d[(5, lane)]["n"], n)
+
+    def test_drumu_plays_short_and_rings_less_than_the_acoustic_kit(self):
+        r = self.play()
+        for lane in range(8):
+            self.assertLess(r[(5, lane)]["ended"], r[(0, lane)]["ended"] * 1.3 + 1, lane)
+        self.assertLess(r[(5, 3)]["ended"], 0.2 * 44100)               # the closed hat: 80 ms
 
     def test_deep_kick_is_lower_than_other_notes(self):
         # lane 0 plays note 36 (down 5 semitones), the others note 45 (down 2): the kick lengthens more

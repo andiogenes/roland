@@ -158,7 +158,7 @@ static const int16_t IMA_STEP[89] = {%s};
 static const int8_t IMA_IDX[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
 #define clamp(v, lo, hi) ((v) < (lo) ? (lo) : (v) > (hi) ? (hi) : (v))
 typedef struct { uint32_t ph[3]; int32_t s[8]; } voice_t;
-typedef struct { uint32_t off, n, rate; } hr_samp_t;
+typedef struct { uint32_t off, n, rate, fmt; } hr_samp_t;
 %s
 static const hr_samp_t HR16_SAMP[HR16_NSAMP] = {HR16_SAMP_INIT};
 int main(void) {
@@ -178,7 +178,7 @@ int main(void) {
         lines = subprocess.run([str(exe)], capture_output=True, text=True).stdout.splitlines()
         nsamp = int(re.search(r"HR16_NSAMP (\d+)", text).group(1))
         blob = bytes(int(v) for v in re.search(r"HR16_DATA\[\d+\] = \{(.*?)\};", text, re.S).group(1).replace("\n", " ").replace(",", " ").split())
-        offs = [int(v) for v in re.findall(r"\{(\d+)u, \d+u, \d+u\}", text)]
+        offs = [int(v) for v in re.findall(r"\{(\d+)u, \d+u, \d+u, \d+u\}", text)]
         for si in range(nsamp):
             f = lines[si].split()
             n = int(f[1])
@@ -199,10 +199,10 @@ int main(void) {
     def test_acoustic_comes_first_and_is_never_dropped(self):
         out = self.d / "o.h"
         ac = str(ROOT / "assets" / "acoustic")
-        r = run(str(out), env={"HR16_DIR": str(self.d / "pack"), "ACOUSTIC_DIR": ac, "HR16_BUDGET": "90000"})
+        r = run(str(out), env={"HR16_DIR": str(self.d / "pack"), "ACOUSTIC_DIR": ac, "HR16_BUDGET": "130000"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("dropping kit HR-B", r.stderr)
-        self.assertIn("6 kits (ACOUS, AC-DP, AC-TI, AC-BR, AC-DU, HR-A)", r.stdout)
+        self.assertIn("7 kits (ACOUS, AC-DP, AC-TI, AC-BR, AC-DU, DRUMU, HR-A)", r.stdout)
         r = run(str(out), env={"HR16_DIR": str(self.d / "pack"), "ACOUSTIC_DIR": ac, "HR16_BUDGET": "20000"})
         self.assertNotEqual(r.returncode, 0)                          # the acoustic samples alone are over
         self.assertIn("over the 20000 byte budget", r.stderr)
