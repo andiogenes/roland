@@ -132,7 +132,7 @@ natively, otherwise Docker).
 4. Install as Felucca's BUILDING.md describes (`tools/fm1_install.py out/roland-drum.fwsc`, or a local copy of its web
    installer).
 
-Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/test_acoustic.py` (30 tests; need `gcc`).
+Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/test_acoustic.py` (34 tests; need `gcc`; `tests/test_fxlab.py` checks the effects' component values against the documents).
 
 ## What changed from Felucca
 
@@ -152,7 +152,7 @@ Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/tes
   only OFF in it for now: the new effect pool goes there. The delay and reverb sends stay until their replacements (tape
   delay, the Dragonfly room) are in. With these effects at their defaults the audio of every kit is **bit-for-bit identical**
   to before; the FX page shows DLY and REV only. Stored values keep their ids (a project with a DIST amount loads, and the
-  amount is ignored).
+  amount is ignored). The modulation matrix's DIST and CHO destinations are retired the same way (they load as OFF).
 * `FELUCCA_HR16=1`: KIT values `HR-A`.. appended after PERC. A hit plays one IMA ADPCM sample per lane, resampled by
   **TUNE**; **DECY** below 64 shortens it, **TONE** below 64 darkens it, **DRV** distorts it; the closed hat chokes the open
   hat. **SNAP, KICK and ACC do nothing** on a sample kit. Level and accent come from velocity. GM notes keep Felucca's

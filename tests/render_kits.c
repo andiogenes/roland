@@ -31,6 +31,11 @@ static int32_t play_kit(uint32_t kit, FILE *f, double *rms, uint32_t *clips)
     uint64_t n = 0;
     uint8_t held[4] = {0}, nheld = 0;
     host_tracks_init();
+    memset(dly_buf, 0, sizeof dly_buf);                  /* each kit from silence: the delay and reverb tails, the limiter and the */
+    rev_clear();                                         /* DC blockers of the kit before must not reach this one */
+    fx.dly_lp = 0;
+    lim_env = LIM_T;
+    dc_l = dc_r = dce_l = dce_r = 0;
     host_drums(&trk[3]);
     trk[3].p[P_E0] = (int16_t)kit;
     for (i = 0; i < 3; i++)                           /* the other parts silent */
