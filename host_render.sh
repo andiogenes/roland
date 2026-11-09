@@ -15,6 +15,7 @@ SRC="${FELUCCA_SRC:-https://github.com/hugelton/Felucca.git}"
 WORK="$ROOT/build/felucca-host"
 OUT="$ROOT/out/host"
 HR16_DIR="${HR16_DIR:-$ROOT/assets/hr16}"
+rm -rf "$OUT/kits" "$OUT/mp3" "$OUT/screens" "$OUT/docs"        # (no file of an earlier run stays among the new ones)
 mkdir -p build "$OUT/kits" "$OUT/screens/ppm"
 
 [ -d "$WORK/.git" ] || git clone -q "$SRC" "$WORK"

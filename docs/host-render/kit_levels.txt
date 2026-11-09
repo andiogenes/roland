@@ -14,6 +14,6 @@ kits: 21 (DK_COUNT)
 15 AC-TI  peak 19977 rms   1962 clipped 0
 16 AC-BR  peak 20400 rms   2492 clipped 0
 17 AC-DU  peak 18065 rms   2607 clipped 0
-18 DRUMU  peak 19596 rms   2785 clipped 0
-19 HR-A   peak 20196 rms   3657 clipped 0
-20 HR-B   peak 20955 rms   3905 clipped 0
+18 HR-A   peak 20196 rms   3657 clipped 0
+19 HR-B   peak 20955 rms   3905 clipped 0
+20 HR-C   peak 21455 rms   3888 clipped 0

@@ -24,6 +24,7 @@ static uint32_t pow2_q16(int32_t d16) { return (uint32_t)lrint(65536.0 * pow(2.0
 static const int16_t IMA_STEP[89] = {IMA_STEP_INIT};
 static const int8_t IMA_IDX[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
 #include "felucca_hr16.h"
+typedef struct { uint32_t off, n, rate; } hr_samp_t_unused;   /* (the player defines hr_samp_t itself) */
 #include PLAYER_FILE
 
 int main(int argc, char **argv)
@@ -66,19 +67,5 @@ int main(int argc, char **argv)
         }
         printf("C %ld\n", ended);
     }
-    for (int kit = 0; kit < HR16_NKITS; kit++)       /* the 8-bit samples straight through hr_next: D kit lane fmt n distinct bad sum */
-        for (int lane = 0; lane < 8; lane++) {
-            const hr_samp_t *z = &HR16_SAMP[HR16_KIT[kit][lane]];
-            if (!z->fmt) continue;
-            voice_t v; memset(&v, 0, sizeof v);
-            unsigned char seen[256] = {0}; long distinct = 0, bad = 0, sum = 0;
-            for (uint32_t i = 0; i < z->n; i++) {
-                int32_t x = hr_next(z, &v);
-                if (x % (int32_t)z->fmt) bad++;
-                { unsigned char *sp = &seen[(x / (int32_t)z->fmt + 128) & 255]; if (!*sp) { *sp = 1; distinct++; } }
-                sum += x;
-            }
-            printf("D %d %d %u %u %ld %ld %ld\n", kit, lane, (unsigned)z->fmt, (unsigned)z->n, distinct, bad, sum);
-        }
     return 0;
 }

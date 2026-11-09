@@ -5,9 +5,8 @@
 # Environment:
 #   HR16_DIR        folder of Alesis HR-16B WAV files (default assets/hr16). Without WAVs there: no HR-16 kits.
 #   FELUCCA_ACOUSTIC 1 (default): add SLOOP's acoustic kit (assets/acoustic, CC0) in its five treatments; 0: leave it out
-#   DRUMULATOR=0    leave out the DRUMU kit (8-bit, from zp12's recordings; built with the acoustic kit)
 #   HR16_MAP        JSON file that picks the files of each kit by hand (see overlay/tools/gen_hr16.py)
-#   HR16_BUDGET     most bytes of sample data to embed, all sample kits together (default 163840)
+#   HR16_BUDGET     most bytes of sample data to embed, all sample kits together (default 147456)
 #   JIELI_TOOLCHAIN, AC79_SDK   as Felucca's BUILDING.md (tools/get_toolchain.sh and the SDK clone there)
 #   FELUCCA_TR606   1 (default): add SLOOP's TR-606 kit; 0: leave it out.  TR606_GAIN_DB: its level in dB (default -3)
 #   KEEP_CC0=1      keep Felucca's CC0 piano / flute / sax in the image (dropped by default: a drum machine does not use
