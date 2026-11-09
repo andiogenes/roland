@@ -1154,7 +1154,7 @@ index 43fbec7..fbccafd 100644
                                          * levels, SPREAD (#148: continuous, as PAN), 1.5's INSERT (TYPE too: a lock
                                          * switches it for a step, fx.c track_insert fades over), E0..E7) */
 diff --git a/firmware/src/params.c b/firmware/src/params.c
-index 4d00f50..d1bff7f 100644
+index 4d00f50..ad988d8 100644
 --- a/firmware/src/params.c
 +++ b/firmware/src/params.c
 @@ -58,7 +58,14 @@ static const char *const N_GO[] = {"--", "GO"};
@@ -1309,7 +1309,27 @@ index 4d00f50..d1bff7f 100644
  enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
         GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
         GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
-@@ -462,10 +525,20 @@ static const page_t PAGES[] = {
+@@ -454,6 +517,19 @@ typedef struct {
+     uint8_t id[4];               /* param ids; 0xFF = empty slot */
+ } page_t;
+ 
++#if FELUCCA_DRUMONLY
++/* a new INSERT TYPE: A .. E and MIX to what the type's device has at its start (INS_DESC's defaults; OFF leaves them) */
++static void ins_defaults(track_t *t)
++{
++    static const uint8_t ID[5] = {P_IA, P_IB, P_IC, P_ID, P_IE};
++    uint32_t k;
++    if (t->p[P_ITYPE] <= 0 || t->p[P_ITYPE] >= (int32_t)NELEM(N_ITYPE))
++        return;
++    for (k = 0; k < 5u; k++)
++        t->p[ID[k]] = ins_desc(t->p[P_ITYPE], k)->def;
++    t->p[P_IMIX] = TP[P_IMIX].def;
++}
++#endif
+ static const page_t PAGES[] = {
+     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
+     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* (P_ED_FX: nothing reads it);
+@@ -462,10 +538,20 @@ static const page_t PAGES[] = {
      {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
      {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
      {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
@@ -1331,7 +1351,7 @@ index 4d00f50..d1bff7f 100644
      {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
      {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING / HALL */
      {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
-@@ -528,6 +601,13 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
+@@ -528,6 +614,13 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
          *valp = &song.g[id];
          return &GP[id];
      }
@@ -1742,7 +1762,7 @@ index 0ae1efb..eed1fa6 100644
              else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                  graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
 diff --git a/firmware/src/ui_input.c b/firmware/src/ui_input.c
-index 5d181cf..31cb2b7 100644
+index 5d181cf..e3c6c41 100644
 --- a/firmware/src/ui_input.c
 +++ b/firmware/src/ui_input.c
 @@ -45,7 +45,11 @@ static uint32_t cur_fam(void) { return ui.home ? FAM_HOME : cur_page()->fam; }
@@ -1770,11 +1790,21 @@ index 5d181cf..31cb2b7 100644
      if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
          mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
          return;
-@@ -1073,6 +1079,12 @@ static void edit_param(uint32_t slot, int32_t steps)
+@@ -1069,10 +1075,22 @@ static void edit_param(uint32_t slot, int32_t steps)
+     d = page_desc(pg, slot, &vp);
+     if (!d || !vp || d->max == d->min)
+         return;
++    int32_t old_v = *vp;
+     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
      if (vp == &TSEL->p[P_ATSNS] && !*vp && v)             /* AFTERTOUCH on (1.8): the engine's routing, if none */
          at_turn_on(TSEL);
      *vp = (int16_t)v;
 +#if FELUCCA_DRUMONLY
++    {   /* a new INSERT TYPE (a track's or a master slot's): its own values, as the device it models is found (params.c ins_defaults) */
++        track_t *it = vp == &TSEL->p[P_ITYPE] ? TSEL : vp == &mtrk[0].p[P_ITYPE] ? &mtrk[0] : vp == &mtrk[1].p[P_ITYPE] ? &mtrk[1] : 0;
++        if (it && v != (int32_t)old_v)
++            ins_defaults(it);
++    }
 +    if (pg->scope == SC_M1 || pg->scope == SC_M2) {        /* the master chain: kept with the settings (favorites.c), no motion */
 +        mch_store();
 +        settings_save();
@@ -1783,7 +1813,7 @@ index 5d181cf..31cb2b7 100644
      if (pg->scope != SC_GLOBAL) {
          motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
          ml_knob(TSEL, (uint32_t)(vp - TSEL->p));        /* (MIDI LEARN: picked) */
-@@ -1519,7 +1531,7 @@ static void ui_input(void)
+@@ -1519,7 +1537,7 @@ static void ui_input(void)
      midi_take();                                        /* (MIDI IN notes: lights, SCREEN WAKE, AUTO SELECT's) */
      midi_pc_poll();                                     /* MIDI Program Change (before fm6_poll: a bank voice) */
      fm6_poll();                                         /* FM6: PTCH turned -> its patch */

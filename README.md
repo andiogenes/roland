@@ -115,6 +115,7 @@ with the settings (`favorites.factory[14]`, the bytes no engine of this build us
 | Acoustic kit | The sample player and its five treatments are cut out of the patch, compiled and run on the real recordings (`tests/test_acoustic.py`). |
 | Drumulator sounds | **Not included** (git-ignored; `assets/drumulator/`). Tested with the pack you supplied: its twelve sounds (the 16k set, 15,625 Hz) make three kits, all render at about the level of the synthesized kits with no clipping. Not heard. |
 | HR-16B samples | **Not included** (git-ignored). The importer was run on the Cluster Sound *Ableton Live* edition (`CS-HR-16B-Live.zip`, the WAVs in its `HR-16B/Samples/` folder, names like `cs_big_foot_kk.wav`): 47 files, 37 sorted into lanes. Other editions may name files differently: run `--list` and check. The 10 FX hits (bottles, pipe, ...) are not used. |
+| Effects | **Tested on the host only**: every INSERT type, the tape echo and the reverb run in the host render and against their references (SPICE netlists for METAL, HARM and PRE; Freeverb3 for the room). Nothing has been **heard**, and none of it has run on the FM-1: the **CPU** of five devices on four tracks plus two master slots plus the room is unmeasured, and the RAM **pool** (360 320 of 368 640 bytes on the host build) is within 8 KB of full. |
 | Flash size | **Unknown.** The 192 KiB sample budget (`HR16_BUDGET`) for all sample kits together is a guess about what fits beside Felucca; the build's linker check will tell, and HR-16 kits are dropped first to fit. Felucca's CC0 piano/flute/sax, the SLICE engine and now every other engine are dropped to make room (about 99 KB in the host
 measurement), so there is probably more room than the budget assumes: raise `HR16_BUDGET` once the real build says what is left. |
 
@@ -172,7 +173,7 @@ natively, otherwise Docker).
 4. Install as Felucca's BUILDING.md describes (`tools/fm1_install.py out/roland-drum.fwsc`, or a local copy of its web
    installer).
 
-Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/test_acoustic.py` (34 tests; need `gcc`; `tests/test_fxlab.py` checks the effects' component values against the documents).
+Tests (`python3 -I tests/test_X.py`, each; need `cc` and numpy for some): `test_gen_hr16` (16), `test_tr606` (8), `test_acoustic` (6), the effects' `test_fxlab` (component values against the documents), `test_comp`, `test_tape`, `test_rot`, `test_hm2`, `test_perc`, `test_ivp` (each device's fixed-point code against its reference, the SPICE models' numbers frozen in the tests), `test_dfly` and `test_dfroom_float` (the reverb; the second needs a clone of dragonfly-reverb and skips without it).
 
 ## What changed from Felucca
 
@@ -186,13 +187,12 @@ Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/tes
   sections) keep their layout, so what is already in flash still loads; the data is ignored, and the editor's sample-slot
   commands answer "no such slot". `overlay/firmware/src/drum_gone.c` is the small stand-in for what the remaining code still
   names. Power-on: DRUM KIT, TR-606, TIGHT KIT, and the acoustic kit on track 4.
-* **Effects, step 1 of [the FX plan](docs/FX-PLAN.md)** (`FELUCCA_DRUMONLY=1`): removed are the per-track **DIST**, the
-  **SLICER**, the **chorus** (its send, its buffer and its page), the old **INSERT types** (soft, hard, fold, fuzz, crush,
-  phaser, flanger, chorus) and the FX layer's **FLANGER** and **PHASER** (their keys are free). The INSERT slot stays, with
-  only OFF in it for now: the new effect pool goes there. The delay and reverb sends stay until their replacements (tape
-  delay, the Dragonfly room) are in. With these effects at their defaults the audio of every kit is **bit-for-bit identical**
-  to before; the FX page shows DLY and REV only. Stored values keep their ids (a project with a DIST amount loads, and the
-  amount is ignored). The modulation matrix's DIST and CHO destinations are retired the same way (they load as OFF).
+* **The effects pool** ([the FX plan](docs/FX-PLAN.md), `FELUCCA_DRUMONLY=1`): removed are the per-track **DIST**, the **SLICER**, the
+  **chorus**, the old **INSERT types** (soft, hard, fold, fuzz, crush, phaser, flanger, chorus), the FX layer's **FLANGER** and **PHASER**
+  (their keys are free) and the three old reverbs. In their place: the INSERT's COMP, PRE, HARM, METAL and ROT with their device faces,
+  the two-slot master chain, the tape echo and the Dragonfly Room (all below). Stored values keep their ids (a project with a DIST
+  amount loads, and the amount is ignored); the modulation matrix's DIST and CHO destinations are retired the same way (they load as
+  OFF). Turning an INSERT's (or a master slot's) TYPE puts that device's own starting values on its knobs.
 * **The delay is a tape echo** (FX plan step 3, `overlay/firmware/src/fx_tape.c`): the read head wanders (wow about 0.2 % of pitch, flutter
   0.05 %), what goes onto the tape is soft-clipped, and each repeat goes through the COLR low-pass as before. TIME, FDBK, COLR and MIX
   keep their meaning; ECHO THROW and the tempo-synced times work as they did. `tests/test_tape.py` checks the wander and the tap.
