@@ -7,6 +7,7 @@
 #   HR16_MAP        JSON file that picks the files of each kit by hand (see overlay/tools/gen_hr16.py)
 #   HR16_BUDGET     most bytes of sample data to embed (default 98304)
 #   JIELI_TOOLCHAIN, AC79_SDK   as Felucca's BUILDING.md (tools/get_toolchain.sh and the SDK clone there)
+#   FELUCCA_TR606   1 (default): add SLOOP's TR-606 kit; 0: leave it out.  TR606_GAIN_DB: its level in dB (default -3)
 #   KEEP_CC0=1      keep Felucca's CC0 piano / flute / sax in the image (dropped by default: a drum machine does not use
 #                   them, and their flash is what the HR-16 kits take)
 set -e
@@ -27,9 +28,12 @@ git -C "$WORK" submodule update --init --recursive -q
 
 git -C "$WORK" apply "$ROOT/patches/felucca-drum.patch"
 cp "$ROOT"/overlay/tools/*.py "$WORK/tools/"
+cp "$ROOT"/overlay/firmware/src/*.c "$WORK/firmware/src/"
 [ "${KEEP_CC0:-0}" = 1 ] || rm -rf "$WORK/assets/samples-cc0"
 
 export FELUCCA_DRUMONLY=1 FELUCCA_SLICE=0 FELUCCA_ADPCM=0
+export FELUCCA_TR606="${FELUCCA_TR606:-1}"            # SLOOP's TR-606 kit (FELUCCA_TR606=0: leave it out)
+export TR606_GAIN_DB="${TR606_GAIN_DB:--3}"           # its level against Felucca's kits: a guess, tune by ear
 if ls "$HR16_DIR"/*.wav "$HR16_DIR"/*/*.wav >/dev/null 2>&1; then
     export FELUCCA_HR16=1 HR16_DIR
     echo "build_drum: HR-16 samples from $HR16_DIR"
