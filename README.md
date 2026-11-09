@@ -72,7 +72,8 @@ is the track's preset, and the host render sets the kit directly.</sub></p>
 | TR606 kit | SLOOP's synth code compiles warning-free and all 16 sounds render, end and choke (`tests/test_tr606.py`); not compared with SLOOP's own output. Its level against Felucca's kits is a guess (`TR606_GAIN_DB`, default -3). |
 | Acoustic kit | The sample player and its five treatments are cut out of the patch, compiled and run on the real recordings (`tests/test_acoustic.py`). |
 | HR-16B samples | **Not included** (git-ignored). The importer was run on the Cluster Sound *Ableton Live* edition (`CS-HR-16B-Live.zip`, the WAVs in its `HR-16B/Samples/` folder, names like `cs_big_foot_kk.wav`): 47 files, 37 sorted into lanes. Other editions may name files differently: run `--list` and check. The 10 FX hits (bottles, pipe, ...) are not used. |
-| Flash size | **Unknown.** The 144 KiB sample budget (`HR16_BUDGET`) for all sample kits together is a guess about what fits beside Felucca; the build's linker check will tell, and HR-16 kits are dropped first to fit. Felucca's CC0 piano/flute/sax and the SLICE engine are dropped to make room. |
+| Flash size | **Unknown.** The 144 KiB sample budget (`HR16_BUDGET`) for all sample kits together is a guess about what fits beside Felucca; the build's linker check will tell, and HR-16 kits are dropped first to fit. Felucca's CC0 piano/flute/sax, the SLICE engine and now every other engine are dropped to make room (about 99 KB in the host
+measurement), so there is probably more room than the budget assumes: raise `HR16_BUDGET` once the real build says what is left. |
 
 ## Host render: what the firmware sources do (no FM-1 needed)
 
@@ -81,7 +82,8 @@ engines, voices, mixer, FX, sequencer and UI code on a stub display) and capture
 the patch, generates the tables, compiles, and writes `out/host/`: a WAV and an mp3 per kit, all kits in one file, the screens
 as PNGs, and the charts above (`PUBLISH=1` also copies the shareable ones into `docs/`). About 40 seconds.
 
-* **It compiles.** With `FELUCCA_DRUMONLY=1 FELUCCA_SLICE=0 FELUCCA_TR606=1 FELUCCA_ACOUSTIC=1 FELUCCA_HR16=1` the only
+* **The whole firmware type-checks**, every file that ships (`felucca.c`), with `FELUCCA_DRUMONLY=0` and `=1`, and the test
+  harness builds. With `FELUCCA_DRUMONLY=1 FELUCCA_SLICE=0 FELUCCA_TR606=1 FELUCCA_ACOUSTIC=1 FELUCCA_HR16=1` the only
   warnings are Felucca's (two unused variables with SLICE off, 64-bit pointer casts in the hardware layer).
 * **All the kits render** (18 with the three HR-16 ones; 21 KIT values, 3 of them retired aliases) a two-bar GM beat through
   the real mixer and FX with **no clipped sample** ([levels](docs/host-render/kit_levels.txt)). Synthesized kits sit at
@@ -89,6 +91,14 @@ as PNGs, and the charts above (`PUBLISH=1` also copies the shareable ones into `
   3.7-3.9 k. The acoustic kits could take about 3-5 dB more (`PEAK` in `gen_hr16.py`); not changed without listening.
 * **Felucca's UI lint passes** on the patched build: 233 screens x 10 palettes, 0 layout findings, 0 alignment errors
   ([log](docs/host-render/ui_lint.txt)).
+
+* **Removing the other engines saves about 99 KB of code and read-only data** (638,347 to 539,443 bytes, 15%) on the same
+  tree, by the host compiler at `-Os` ([`tests/host_size.sh`](tests/host_size.sh), `out/host/size.txt`). That is x86-64 code,
+  which is bulkier than the FM-1's, so read it as the size of the difference in kind, not as a number of kilobytes on the
+  device. It includes 22 KB of sample-loop data that only the removed SLICE engine used. The audio of every kit is
+  **bit-for-bit identical** before and after the removal, and every screen picture in `docs/` is byte-identical too.
+  Not touched: the 8 x 12.9 KB engine memory pool (RAM, sized for the largest removed engine; the DRUM engine needs far less)
+  and the effects' buffers.
 
 This says nothing about the FM-1's own CPU budget (the render is faster than real time on a PC), flash size, or how it
 sounds on the speaker.
@@ -121,9 +131,16 @@ Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/tes
 
 ## What changed from Felucca
 
-* `FELUCCA_DRUMONLY=1`: the only engine offered is DRUM (PRESETS, the EDIT layer and the editor list); the other engines
-  stay in the table with their numbers so stores keep loading; a sound of any other engine plays as DRUM. Power-on:
-  DRUM KIT, TR-606, TIGHT KIT, and the acoustic kit on track 4.
+* `FELUCCA_DRUMONLY=1`: **the only engine is DRUM.** The other engines (ANALOG, PHASE, LOFI, SAMPLE, VOICE, TRIO, WHEEL,
+  GRAIN, PHYS, NOISE, FM6, and DIGITAL's conversion) are not built: their code, tables, factory sounds and their own screens
+  (FM6's operator pages and algorithm charts, WHEEL's drawbars, SAMPLE's waveform) are left out to save flash. **What stays:**
+  everything that is not an engine, as asked: the effects (insert, chorus, delay, reverb, the SLICER insert), the modulation
+  matrix, LFOs, the arpeggiator, the sequencer, songs, projects, MIDI, USB audio and the editor. Engine numbers keep their
+  slots in the table and every one of them plays DRUM, so a project, preset or backup that names another engine loads as
+  drums. The records that held other engines' data (a project's FM6 patches, an undo step, a backup's FM6 and sample-slot
+  sections) keep their layout, so what is already in flash still loads; the data is ignored, and the editor's sample-slot
+  commands answer "no such slot". `overlay/firmware/src/drum_gone.c` is the small stand-in for what the remaining code still
+  names. Power-on: DRUM KIT, TR-606, TIGHT KIT, and the acoustic kit on track 4.
 * `FELUCCA_HR16=1`: KIT values `HR-A`.. appended after PERC. A hit plays one IMA ADPCM sample per lane, resampled by
   **TUNE**; **DECY** below 64 shortens it, **TONE** below 64 darkens it, **DRV** distorts it; the closed hat chokes the open
   hat. **SNAP, KICK and ACC do nothing** on a sample kit. Level and accent come from velocity. GM notes keep Felucca's
@@ -144,8 +161,8 @@ Tests: `python3 -I tests/test_gen_hr16.py`, `tests/test_tr606.py` and `tests/tes
   conga, shaker, claves and tambourine are not in it: the TOM lane has the low tom (the other toms are its pitches), and
   the BELL lane the crash. Same knobs as the HR-16 kits.
 * ADPCM sample kits are mono, trimmed, normalised per lane and stored at 22.05 kHz (`HR16_RATE`), one-shot.
-* Not removed: the other engines' code is still compiled in (it only costs flash), and the editor can still switch a
-  track to another engine.
+* The other build modes are untouched: with `FELUCCA_DRUMONLY=0` the firmware is Felucca's, and the whole tree type-checks
+  in both modes (`tests/host_size.sh`).
 
 Kit k of the HR-16 pack takes the k-th file of each lane (wrapping), up to `HR16_MAX_KITS` (6). All sample kits share
 `HR16_BUDGET` (144 KiB by default). The acoustic kit comes first and is never dropped (it takes about 50 KiB); HR-16 kits are

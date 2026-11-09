@@ -52,13 +52,25 @@ echo "host_render: flags $FLAGS"
 
 HALI="-Ifirmware/hal -Ifirmware/bsp/chip -Ifirmware/bsp/boards/fm1 -Ifirmware/src"
 FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c | head -n 1)
-cp "$ROOT/tests/render_kits.c" "$ROOT/tests/render_screens.c" tests/
+cp "$ROOT/tests/render_kits.c" "$ROOT/tests/render_screens.c" "$ROOT/tests/drum_ui_stubs.h" tests/
+# Felucca's test harness also names the engines that a drum-only build does not have (DIGITAL's conversion, FM6's chart
+# self-checks, SAMPLE's waveform): the same guards the firmware got, and the stand-ins in tests/drum_ui_stubs.h
+sed -i 's/^#if !FELUCCA_FM4$/#if !FELUCCA_FM4 \&\& !FELUCCA_DRUMONLY/' tests/hostsim.c tests/ui_test.c tests/ui_render.c
+sed -i 's/if (fmp_charts - c0 != 32u)/if (!FELUCCA_DRUMONLY \&\& fmp_charts - c0 != 32u)/; s/if (fmp_charts - c0 != 384u)/if (!FELUCCA_DRUMONLY \&\& fmp_charts - c0 != 384u)/' tests/ui_render.c
+$PY - <<'PYEOF'
+p = "tests/ui_test.c"
+s = open(p, encoding="utf-8").read()
+old = '#include "../firmware/src/project.c"\n'
+assert s.count(old) == 1
+open(p, "w", encoding="utf-8").write(s.replace(old, old + '#if FELUCCA_DRUMONLY\n#include "drum_ui_stubs.h"\n#endif\n'))
+PYEOF
 # ui_render.c's main renamed (ui_test.c, which it includes, undefines any #define main)
 sed 's/^int main(int argc, char \*\*argv)$/int ui_render_main(int argc, char **argv)/' tests/ui_render.c > tests/ui_render_lib.c
 cc -O1 -Wall -Wno-unused-function -Wno-int-to-pointer-cast $HALI $FLAGS -Ibuild/gen -Ifirmware/src -Itests -o build/host/render_kits tests/render_kits.c -lm
 cc -O1 -w $HALI $FLAGS "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o build/host/render_screens tests/render_screens.c -lm
 cc -O1 -w $HALI $FLAGS "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o build/host/ui_render tests/ui_render.c -lm
 echo "host_render: built (the patched firmware sources compile on the host)"
+PATH="$ROOT/build/venv/bin:$PATH" sh "$ROOT/tests/host_size.sh" "$(echo "$FLAGS" | sed 's/-DFELUCCA_DRUMONLY=1//')" | tee "$OUT/size.txt"
 
 build/host/render_kits "$OUT/kits" | tee "$OUT/kits/levels.txt"
 build/host/render_screens "$OUT/screens"

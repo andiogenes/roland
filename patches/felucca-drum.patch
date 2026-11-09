@@ -1,5 +1,5 @@
 diff --git a/firmware/src/core.h b/firmware/src/core.h
-index 2c1b980..106fef3 100644
+index 2c1b980..a3d2997 100644
 --- a/firmware/src/core.h
 +++ b/firmware/src/core.h
 @@ -35,11 +35,25 @@
@@ -29,14 +29,110 @@ index 2c1b980..106fef3 100644
                                                  * in the display order of engines.c ENGINE_ORDER */
  #define UP_SLOTS 32u             /* user presets (upreset.c) */
  
-@@ -118,6 +132,7 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const
+@@ -118,6 +132,11 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const
  /* engine indices the stores name (engines.c ENGINES[]: append-only) */
  #define ENGI_PHYS 9u
  #define ENGI_DRUM 10u
-+#define ENGI_FALLBACK (FELUCCA_DRUMONLY ? ENGI_DRUM : ENGI_FM6)   /* the engine a sound of one that cannot be picked plays on */
++#if FELUCCA_DRUMONLY
++#define ENGI_FALLBACK ENGI_DRUM  /* the engine a sound of one that cannot be picked plays on */
++#else
++#define ENGI_FALLBACK ENGI_FM6
++#endif
  /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
   * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
   * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
+diff --git a/firmware/src/editor.c b/firmware/src/editor.c
+index 3ab73de..150ca0b 100644
+--- a/firmware/src/editor.c
++++ b/firmware/src/editor.c
+@@ -88,8 +88,10 @@ static int ed_smp_erase(uint32_t k, uint32_t all)  /* header sector, or the whol
+     uint32_t i, took;
+     int rc = 0;
+     usr_nz[k] = 0;
++#if SMP_USER_SLOTS
+     for (i = 0; i < 16u; i++)
+         usr_zone[k][i].n = 0;                     /* a sounding voice ends instead of reading 0xFF */
++#endif
+     for (i = 0; i < (all ? SMP_USER_SIZE / 0x1000u : 1u) && !rc; i++) {
+         audio_silence();
+         rc = fl_erase4k(ed_smp_slot(k) + i * 0x1000u, &took);
+@@ -350,7 +352,9 @@ static int ed_flash_stop(void)
+ 
+ #include "editor_preferences.c"
+ #include "editor_backup.c"
++#if !FELUCCA_DRUMONLY
+ #include "editor_fm6.c"
++#endif
+ #include "editor_menu.c"
+ #include "editor_learn.c"                    /* 1.5: MIDI LEARN's map (cmds 78, 79) */
+ #include "editor_palette.c"                  /* 1.6: CUSTOM, the user's palette (cmds 80, 81) */
+@@ -562,7 +566,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
+         if (na < 2u || a[0] >= NENGINES)
+             return;
+         ed_load_before(&b);
+-#if !FELUCCA_FM4
++#if !FELUCCA_FM4 && !FELUCCA_DRUMONLY
+         if (a[0] == ENGI_DIGITAL)                          /* a DIGITAL preset (retired): its sound, as FM6 */
+             fm4_load_preset(TSEL, a[1]);
+         else
+diff --git a/firmware/src/editor_backup.c b/firmware/src/editor_backup.c
+index 3c68a2e..fd889d4 100644
+--- a/firmware/src/editor_backup.c
++++ b/firmware/src/editor_backup.c
+@@ -12,7 +12,9 @@ static const uint8_t ED_BK_IDS[13] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34};
+ #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
+ #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u.raw)
+ #define ED_BK_RAW (proj_wire_u.raw)  /* reuse the existing serialized main-loop scratch */
++#if !FELUCCA_DRUMONLY
+ _Static_assert(sizeof proj_wire_u.raw >= sizeof(upf_t) && sizeof proj_wire_u.raw >= sizeof(fm6_bank_t), "backup staging");
++#endif
+ static persist_t ed_bk_settings __attribute__((section(".pool")));
+ static uint8_t ed_bk_valid, ed_bk_put, ed_bk_id, ed_bk_gen;
+ static uint32_t ed_bk_len, ed_bk_crc, ed_bk_pos, ed_bk_ms, ed_bk_usb;
+@@ -47,8 +49,12 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
+     if (id == 8u)                                   /* the retired FM6 patch bank: always empty */
+         return ED_BK_RAW;
+     if (id == 9u) {                                 /* the user presets' FM6 patches */
++#if FELUCCA_DRUMONLY
++        return ED_BK_RAW;                           /* (none in this build: always empty) */
++#else
+         if (upf_valid(&upf)) *len = sizeof upf;
+         return (const uint8_t *)&upf;
++#endif
+     }
+     if (id >= 32u && id < 32u + SMP_USER_SLOTS) {
+         uint32_t k = id - 32u;
+@@ -116,6 +122,10 @@ static uint32_t ed_bk_commit(void)
+             p->rsize != sizeof(up_rec_t) || p->nslot != UP_PER_BANK)) return 2;
+         /* Unknown record versions remain inert bytes, preserving future/older bank data. */
+         obj = OBJ_UPRESET0 + ed_bk_id - 6u;
++#if FELUCCA_DRUMONLY
++    } else if (ed_bk_id == 8u || ed_bk_id == 9u) {  /* FM6's patches (an archive of another firmware): not kept, not an error */
++        return 0;
++#else
+     } else if (ed_bk_id == 8u) {                    /* an older archive's FM6 bank: into the restored user presets */
+         if (!ed_bk_len) return 0;
+         if (ed_bk_len != sizeof(fm6_bank_t) || !fm6_bank_valid((const fm6_bank_t *)raw)) return 2;
+@@ -128,6 +138,7 @@ static uint32_t ed_bk_commit(void)
+         if (ed_bk_len) memcpy(&upf, raw, sizeof upf); else upf_empty();
+         sync_reload = 1; ui.force = 1;
+         return upf_save() == 2 ? 4u : 0u;           /* (a failed write keeps the restored RAM copy) */
++#endif
+     } else return 1;
+ #if FELUCCA_FLASH
+     if (!flash_ok || st_save(obj, raw, ed_bk_len)) return 4;
+@@ -171,7 +182,10 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
+             (a[1] == 1u && len != sizeof(persist_t)) ||
+             (a[1] >= 2u && a[1] <= 5u && len && !proj_store_len(len)) ||
+             ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
+-            (a[1] == 8u && len && len != sizeof(fm6_bank_t)) || (a[1] == 9u && len && len != sizeof(upf_t))) return 1;
++#if !FELUCCA_DRUMONLY
++            (a[1] == 8u && len && len != sizeof(fm6_bank_t)) || (a[1] == 9u && len && len != sizeof(upf_t)) ||
++#endif
++            0) return 1;
+         if (ed_flash_stop()) return 3;
+         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
+         ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
 diff --git a/firmware/src/eng_drum.c b/firmware/src/eng_drum.c
 index eefafea..58f934f 100644
 --- a/firmware/src/eng_drum.c
@@ -407,10 +503,68 @@ index eefafea..58f934f 100644
  
  static const engine_t ENG_DRUM = {
 diff --git a/firmware/src/engines.c b/firmware/src/engines.c
-index af4e4c6..a954bff 100644
+index af4e4c6..7373968 100644
 --- a/firmware/src/engines.c
 +++ b/firmware/src/engines.c
-@@ -122,6 +122,10 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
+@@ -25,6 +25,20 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
+ #define ENG_MEM(p) ((void *)eng_mem[p].b)  /* part p's region (p < NPART) */
+ #define ENG_MEM_FITS(name, size) _Static_assert((size) <= ENG_MEM_PART, name " state over ENG_MEM_PART")
+ 
++#if FELUCCA_DRUMONLY
++#include "drum_ima.c"           /* the SAMPLE engine's IMA tables and pow2_q16, which the DRUM sample kits use */
++#include "drum_gone.c"          /* what the rest of the firmware still asks of the engines that are not built */
++#include "eng_drum.c"           /* DRUM: the 8-lane kit (drum_voice.c): the only engine this build has */
++/* the other engines are not built (their code, tables and screens are left out to save flash): every engine number plays
++ * DRUM (a store that names another loads as DRUM, eng_ok), and the names the remaining code compares an engine with are
++ * one engine that no track has */
++static const engine_t ENG_GONE;
++#define ENG_ANALOG ENG_GONE
++#define ENG_SAMPLE ENG_GONE
++#define ENG_WHEEL ENG_GONE
++#define ENG_PHYS ENG_GONE
++#define ENG_SLICE ENG_GONE
++#else
+ #include "../engines/src/eng_analog.c"   /* Felucca-Engines (MIT): ANALOG LOFI TRIO WHEEL NOISE */
+ #include "../engines/src/eng_phase.c"   /* Felucca-Engines (MIT): PHASE */
+ #include "../engines/src/eng_lofi.c"
+@@ -47,8 +61,12 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
+ #if FELUCCA_ADPCM
+ #include "eng_adpcm.c"           /* ADPCM: BRR waves and an FIR echo, its DSP ported from snes_spc (adpcm_dsp.c, LGPL-2.1+) */
+ #endif
++#endif
+ 
+ /* the editor protocol, user presets and projects store these indices: append, never reorder */
++#if FELUCCA_DRUMONLY
++static const engine_t *const ENGINES[NENGINES] = {[0 ... NENGINES - 1] = &ENG_DRUM};
++#else
+ static const engine_t *const ENGINES[NENGINES] = {
+     &ENG_ANALOG,                 /* 0 */
+ #if FELUCCA_FM4
+@@ -74,6 +92,7 @@ static const engine_t *const ENGINES[NENGINES] = {
+     &ENG_ADPCM,                  /* 14 (ENGI_ADPCM; FELUCCA_ADPCM=0 builds without it) */
+ #endif
+ };
++#endif
+ 
+ /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
+ static inline uint32_t eng_idx(uint32_t e) { return e < NENGINES ? e : 0u; }
+@@ -101,6 +120,9 @@ static void eng_mem_claim(const track_t *t)
+  * invalid user slot, a set or PIANO this build lacks): its name (it plays a sine: eng_sample.c smp_sine), 0 = none;
+  * *code a small number for it (1.., per engine and source) so the UI says it once (ui_input.c sample_notice) */
+ static uint8_t snd_said[NTRK];   /* per track: the code last said, 0 = none (a project load clears them: said again) */
++#if FELUCCA_DRUMONLY
++static const char *snd_missing(const track_t *t, uint32_t *code) { (void)t; (void)code; return 0; }   /* (no sample engines) */
++#else
+ static const char *snd_missing(const track_t *t, uint32_t *code)
+ {
+     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+@@ -117,11 +139,16 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
+     *code = (e == &ENG_GRAIN ? 32u : 1u) + si % 32u;
+     return smp_set_missing(si) ? SMP_ALL_NAMES[si] : 0;
+ }
++#endif
+ 
+ /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
   * engine indices, never DIGITAL's reserved 1 (with FELUCCA_FM4 it follows FM6). The indices stay as they are (the
   * stores and the protocol hold them); only this table orders them */
  static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
@@ -421,7 +575,7 @@ index af4e4c6..a954bff 100644
      0,                           /* ANALOG */
      12,                          /* FM6 */
  #if FELUCCA_FM4
-@@ -137,16 +141,22 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
+@@ -137,16 +164,22 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
      14,                          /* ADPCM (1.8): last, so the EDIT layer's white keys keep the 13 above (ui_layer.c LY_ENG_KEYS) */
  #endif
  };
@@ -446,7 +600,7 @@ index af4e4c6..a954bff 100644
      for (n = 0; n < NENG_SHOWN && ENGINE_ORDER[n] != e; n++)
          ;
      return n < NENG_SHOWN ? n : 0u;
-@@ -200,6 +210,13 @@ static const struct {
+@@ -200,6 +233,13 @@ static const struct {
  #define NPATTERNS (sizeof PATTERNS / sizeof PATTERNS[0])
  
  /* the parts at power-on (engine, preset, PATTERNS[n - 1] in the sequencer, 0 = empty: all are): bass, pad, lead, drums */
@@ -460,11 +614,298 @@ index af4e4c6..a954bff 100644
                                                                         * FM6 PAD (was DIGITAL PAD), LOFI PULSE LD, DRUM KIT */
 +#endif
  static uint32_t trk_def_engine(uint32_t i) { return TRK_DEF[i % NPART][0]; }
+diff --git a/firmware/src/icons.c b/firmware/src/icons.c
+index c03e456..113a94f 100644
+--- a/firmware/src/icons.c
++++ b/firmware/src/icons.c
+@@ -194,16 +194,20 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
+         return ICON_LFO_WAVE;                 /* "WAVE" is also the oscillator wave */
+     if (d == &TP[P_ARATE] || d == &TP[P_SLRATE])
+         return ICON_DIVISION;                 /* arp / SLICER RATE is a note division, not Hz */
++#if !FELUCCA_DRUMONLY
+     if (d->names == N_TRIO_MODE)
+         return ICON_CUTOFF;                   /* TRIO's MODE is the filter type, not the arp mode */
++#endif
+     if (d == &TP[P_FTYPE])
+         return ICON_CUTOFF;                   /* ANALOG's filter TYPE (1.5): "TYPE" is also the reverb's */
+     if (d == &TP[P_ESYNC])
+         return ICON_TEMPO;                    /* ENV SYNC (1.5): as LFO 2's SYNC */
++#if !FELUCCA_DRUMONLY
+     if (d->names == N_NOISE_MODE)
+         return ICON_NOISE;                    /* NOISE's MODE is the source; its CLK the register clock */
+     if (d == &NOISE_CLK)
+         return ICON_RATE;
++#endif
+ #if FELUCCA_SLICE
+     if (d->names == N_SLC_DIV)
+         return ICON_SLICE;                    /* SLICE: DIV is the slicing, MODE the gate, REV the direction */
+diff --git a/firmware/src/params.c b/firmware/src/params.c
+index 4d00f50..a900620 100644
+--- a/firmware/src/params.c
++++ b/firmware/src/params.c
+@@ -264,7 +264,11 @@ static int32_t enum_orig(const param_desc_t *d, int32_t v)
+ {
+     if (d->names == N_DRUM_KIT)
+         return v >= 0 && v < DK_COUNT ? (int32_t)DK_PLAYS[v] : v;
++#if FELUCCA_DRUMONLY
++    return v;
++#else
+     return d->names == SMP_ALL_NAMES && v >= 0 && v < SMP_NSETS ? SMP_SET_ORIG[v] : v;
++#endif
+ }
+ 
+ /* a stored value as the parameter takes it (projects, user presets, motion): inside d's range, and a retired
+diff --git a/firmware/src/project.c b/firmware/src/project.c
+index d267cd1..0cb45d1 100644
+--- a/firmware/src/project.c
++++ b/firmware/src/project.c
+@@ -322,7 +322,7 @@ static void proj_phys(project_t *q)
+  * over to FM6's macros. Idempotent */
+ static void proj_fm4(project_t *q)
+ {
+-#if !FELUCCA_FM4
++#if !FELUCCA_FM4 && !FELUCCA_DRUMONLY
+     uint32_t k, i, n, hit = 0;
+     for (k = 0; k < NTRK; k++) {
+         proj_trk_t *d = &q->t[k];
+diff --git a/firmware/src/ui.c b/firmware/src/ui.c
+index e63d369..6378f98 100644
+--- a/firmware/src/ui.c
++++ b/firmware/src/ui.c
+@@ -1297,7 +1297,7 @@ static uint32_t preset_rank(const engine_t *e, uint32_t k)
+ 
+ #define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
+ 
+-#if !FELUCCA_FM4
++#if !FELUCCA_FM4 && !FELUCCA_DRUMONLY
+ /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
+  * (fm4_convert.c). Every path that brings a DIGITAL sound into a track ends here: a track never keeps engine 1 */
+ static void fm4_apply(track_t *t, int16_t *p)
+@@ -1345,7 +1345,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
+ {
+     const engine_t *e = ENGINES[t->eng_req % NENGINES];
+     uint32_t i;
+-#if !FELUCCA_FM4
++#if !FELUCCA_FM4 && !FELUCCA_DRUMONLY
+     if (t->eng_req % NENGINES == ENGI_DIGITAL) {
+         fm4_load_preset(t, pi);
+         return;
+@@ -1393,7 +1393,7 @@ static void set_engine_of(track_t *t, uint32_t ei)
+ {
+     const engine_t *e = ENGINES[ei % NENGINES];
+     uint32_t i;
+-#if !FELUCCA_FM4
++#if !FELUCCA_FM4 && !FELUCCA_DRUMONLY
+     if (ei % NENGINES == ENGI_DIGITAL) {             /* DIGITAL (retired): its first preset, as FM6 */
+         fm4_load_preset(t, 0);
+         return;
+@@ -1423,7 +1423,7 @@ static void clean_engine_of(track_t *t)
+ {
+     uint32_t ei = t->eng_req % NENGINES, i;
+     const engine_t *e = ENGINES[ei];
+-#if !FELUCCA_FM4
++#if !FELUCCA_FM4 && !FELUCCA_DRUMONLY
+     if (ei == ENGI_DIGITAL) {                         /* (retired: it becomes FM6, fm4_track) */
+         set_engine_of(t, ei);
+         return;
+diff --git a/firmware/src/ui_draw.c b/firmware/src/ui_draw.c
+index 762d5a9..ceae307 100644
+--- a/firmware/src/ui_draw.c
++++ b/firmware/src/ui_draw.c
+@@ -501,6 +501,7 @@ static void span_mod_dst(const card_span_t *sp, int32_t v, char *val)   /* MOD's
+ {
+     str_cpy(val, mod_dst_name((const track_t *)sp->p, v), 16);
+ }
++#if !FELUCCA_DRUMONLY
+ static void span_fop(const card_span_t *sp, int32_t v, char *val)       /* FM6's operator pages: card ctx's byte = v */
+ {
+     const char *l, *u;
+@@ -508,6 +509,7 @@ static void span_fop(const card_span_t *sp, int32_t v, char *val)       /* FM6's
+     uint32_t ic;
+     (void)fop_card_at((uint32_t)sp->ctx, v, &l, val, &u, &r, &ic);
+ }
++#endif
+ static void card_span_by(void (*fn)(const card_span_t *, int32_t, char *), const void *p, int32_t lo, int32_t hi, int32_t ctx)
+ {
+     card_span.fn = fn;
+@@ -815,6 +817,7 @@ static void sound_name(const track_t *t, char *b)
+         up_name(user_of(t), b);
+         return;
+     }
++#if !FELUCCA_DRUMONLY
+     if (t->eng_req == ENGI_FM6) {
+         uint32_t tr = (uint32_t)(t - trk) % NTRK, k;
+         int32_t s = fm6_slot[tr];
+@@ -829,6 +832,7 @@ static void sound_name(const track_t *t, char *b)
+                 return;
+         }
+     }
++#endif
+     if (e->npresets)
+         str_cpy(b, e->presets[t->preset % e->npresets].name, 16);
+ }
+@@ -1176,6 +1180,7 @@ static void draw_columns(void)
+         return;
+     }
+ #endif
++#if !FELUCCA_DRUMONLY
+     if (fop_page(cur_page()->graph)) {                   /* FM6: OP, then three of its bytes (ui_fm6op.c) */
+         for (c = 0; c < 4u; c++) {
+             const char *lb, *u;
+@@ -1193,6 +1198,7 @@ static void draw_columns(void)
+         }
+         return;
+     }
++#endif
+     if (cur_page()->graph == GR_MOD) {                   /* SLOT, then that slot's SRC DST AMT */
+         const track_t *t = TSEL;
+         uint32_t id = P_M1SRC + 3u * mod_ui_slot;
+diff --git a/firmware/src/ui_graph.c b/firmware/src/ui_graph.c
+index 0ae1efb..1960cc0 100644
+--- a/firmware/src/ui_graph.c
++++ b/firmware/src/ui_graph.c
+@@ -12,7 +12,9 @@
+ #define GOY 11                                       /* graphs drawn on a 100 px scale sit at y 11..111 */
+ /* the height ADSR and LFO are drawn on: 100 px, or (MENU > LARGE's strip: draw_graph) the strip's ~ 56 */
+ static int32_t graph_ht = 100;
++#if !FELUCCA_DRUMONLY
+ #include "ui_fm6op.c"                                /* EDIT > OPERATOR, OP ENV, OPERATOR 2: FM6's operators (their charts below) */
++#endif
+ 
+ /* Matches voice.c: attack is linear, decay and release are exponential
+  * (env += (target - env) * k each tick, ~99 % after the set time). Time
+@@ -553,6 +555,7 @@ static uint32_t str_hash(uint32_t h, const char *s)
+     return h;
+ }
+ 
++#if !FELUCCA_DRUMONLY                                    /* (the SAMPLE engine's waveform) */
+ /* One shared, reduced sample display. Decode only in the UI/main loop with a
+  * private IMA state, 512 samples per frame; no audio voice state is touched.
+  * Cache follows the sample zone, selected note and user-slot generation. */
+@@ -628,6 +631,7 @@ static void graph_sample(uint16_t c)
+         cv_line(left, 4, left, 90, T_MID); cv_line(right, 4, right, 90, T_MID);
+     }
+ }
++#endif
+ 
+ #if FELUCCA_SLICE
+ /* SLICES (ui_slice.c): the waveform from the marker before the selected one to the one after it (the selected
+@@ -684,6 +688,7 @@ static void graph_slices(void)
+ }
+ #endif
+ 
++#if !FELUCCA_DRUMONLY                                    /* (WHEEL's drawbars, FM6's algorithm charts and operator envelope) */
+ /* WHEEL: the nine drawbars as rounded bars over RAISE slots (the bars of the knob just turned: the accent),
+  * their footages under them */
+ static void graph_wheel(const track_t *t, uint16_t c)
+@@ -902,6 +907,7 @@ static void graph_fm6env(const track_t *t, uint16_t c)
+     cv_text_r(228, 4 - GOY, &AF_S, b, T_TEXT, T_SURF);
+ }
+ 
++#endif
+ #if FELUCCA_FM4
+ /* DIGITAL's eight algorithms as FM charts, read from src/eng_digital.c's switch (alg) (ui_test.c checks
+  * these tables against it). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
+@@ -1232,6 +1238,7 @@ static uint32_t graph_signature(void)
+ #if FELUCCA_SLICE
+     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
+ #endif
++#if !FELUCCA_DRUMONLY
+     if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
+                                    (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
+         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
+@@ -1239,6 +1246,7 @@ static uint32_t graph_signature(void)
+                                                      * levels, FB; the operator pages: the operator, the stage) */
+         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + (fop_op + 1u) * 40503u + (fop_stg + 1u) * 7919u;
+     if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) h ^= sample_wave.pos * 13u + sample_wave.key;
++#endif
+     if (pg->graph == GR_ROLL) {
+         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
+         if (ph / 16u != ui.bank)
+@@ -2244,7 +2252,9 @@ static void draw_graph(void)
+         draw_home_tracks();
+         return;
+     }
++#if !FELUCCA_DRUMONLY
+     if (!ui.home && pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) sample_wave_tick(t);
++#endif
+     sig = graph_signature();
+     if (!ui.force && sig == ui.graph_sig)
+         return;
+@@ -2336,6 +2346,7 @@ static void draw_graph(void)
+             graph_slices();
+             break;
+ #endif
++#if !FELUCCA_DRUMONLY
+         case GR_FMOP:
+         case GR_FMOP2:
+             if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */
+@@ -2343,10 +2354,15 @@ static void draw_graph(void)
+         case GR_FMENV:
+             if (fop_ok()) graph_fm6env(t, c);
+             break;
++#endif
+         default:
++#if !FELUCCA_DRUMONLY
+             if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
+             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
+             else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c, 6u);   /* EDIT 1 and 2 */
++            else
++#endif
++            if (0) {}
+ #if FELUCCA_FM4
+             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
+                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
+diff --git a/firmware/src/ui_input.c b/firmware/src/ui_input.c
+index 5d181cf..9816484 100644
+--- a/firmware/src/ui_input.c
++++ b/firmware/src/ui_input.c
+@@ -1058,10 +1058,12 @@ static void edit_param(uint32_t slot, int32_t steps)
+             ui.ppick = (uint8_t)clamp((int32_t)pat_pick() + steps, 0, (int32_t)pat_count() - 1);
+         return;
+     }
++#if !FELUCCA_DRUMONLY
+     if (fop_page(pg->graph)) {                           /* FM6's operators: KNOB 1 OP, 2..4 its bytes (ui_fm6op.c) */
+         fop_knob(slot, steps);
+         return;
+     }
++#endif
+     if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
+         mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
+         return;
+@@ -1519,7 +1521,7 @@ static void ui_input(void)
+     midi_take();                                        /* (MIDI IN notes: lights, SCREEN WAKE, AUTO SELECT's) */
+     midi_pc_poll();                                     /* MIDI Program Change (before fm6_poll: a bank voice) */
+     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
+-#if !FELUCCA_FM4
++#if !FELUCCA_FM4 && !FELUCCA_DRUMONLY
+     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
+         if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
+             fm4_track(&trk[k]);
 diff --git a/firmware/src/upreset.c b/firmware/src/upreset.c
-index 4766bf6..2e42523 100644
+index 4766bf6..daf1988 100644
 --- a/firmware/src/upreset.c
 +++ b/firmware/src/upreset.c
-@@ -371,7 +371,7 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k)
+@@ -278,14 +278,18 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
+     for (i = 0; i < P_COUNT; i++)
+         def[i] = param_desc_of(r->engine, i)->def;
+     up_params(r, v, def);
++#if !FELUCCA_DRUMONLY
+     if (r->ver == 1u && ENGINES[r->engine] == &ENG_PHYS)   /* (before 1.0: MODEL 2 was DUST) */
+         phys_legacy(&v[P_E0]);
++#endif
+     for (i = 0; i < P_COUNT; i++)
+         v[i] = (int16_t)param_fit(param_desc_of(r->engine, i), v[i]);   /* (a retired KIT: the kit it plays) */
+ }
+ 
++#if !FELUCCA_DRUMONLY
+ #include "up_fm6.c"                            /* the FM6 user presets' patches: the same kind of store */
+ #include "fm6_vbank.c"                         /* FM6's voice bank (SLOT B1..B32, 1.4.1) */
++#endif
+ 
+ static void up_boot(void)                      /* persist_boot: the banks from flash */
+ {
+@@ -371,7 +375,7 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k)
  {
      char l[4];
      e %= NENGINES;
@@ -473,7 +914,16 @@ index 4766bf6..2e42523 100644
      up_slot_label(l, k);
      str_cpy(b + str_len(b), " ", 2);
      str_cpy(b + str_len(b), l + 1, 3);
-@@ -538,7 +538,7 @@ static void up_pat_load(track_t *t, uint32_t k)
+@@ -464,7 +468,7 @@ static int up_load(uint32_t k)
+     up_values(r, v);
+     load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
+     panic_req |= (uint8_t)(1u << song.sel);
+-#if !FELUCCA_FM4
++#if !FELUCCA_FM4 && !FELUCCA_DRUMONLY
+     if (r->engine == ENGI_DIGITAL) {                    /* a DIGITAL sound (kept as it was stored): FM6 */
+         int16_t p[P_COUNT];
+         for (i = 0; i < P_COUNT; i++)
+@@ -538,7 +542,7 @@ static void up_pat_load(track_t *t, uint32_t k)
  }
  
  /* the engine a used slot's sound plays on (a DIGITAL record: FM6, without FELUCCA_FM4) */

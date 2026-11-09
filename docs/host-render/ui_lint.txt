@@ -1,4 +1,4 @@
 ui_render: the splash shows the version v1.8.1 (FELUCCA_VERSION) and its lines
-ui_render: MENU > LARGE: 277 knobs swept tall, 0 whose values change size (#251); 199 in L, 78 in M, 0 in S
+ui_render: MENU > LARGE: 109 knobs swept tall, 0 whose values change size (#251); 55 in L, 54 in M, 0 in S
 ui_render: 233 screens x 10 palettes + the page/value sweep; 0 lint findings, 526 ellipsised free texts (3 distinct), 0 inks on their own colour, 0 GREY / MONO pixels off gray / neutral; report build/ui_new/report.txt
-ui_render: alignment: 1060260 measurements of 79 places, 0 off by 1 px or more
+ui_render: alignment: 697347 measurements of 77 places, 0 off by 1 px or more
