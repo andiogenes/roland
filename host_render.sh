@@ -25,7 +25,7 @@ git -C "$WORK" clean -fdxq -e build -e firmware/bsp -e firmware/engines
 git -C "$WORK" submodule update --init -q
 git -C "$WORK" apply "$ROOT/patches/felucca-drum.patch"
 cp "$ROOT"/overlay/tools/*.py "$WORK/tools/"
-cp "$ROOT"/overlay/firmware/src/*.c "$WORK/firmware/src/"
+cp "$ROOT"/overlay/firmware/src/*.c "$ROOT"/overlay/firmware/src/*.h "$WORK/firmware/src/"
 rm -rf "$WORK/assets/samples-cc0"
 
 [ -x build/venv/bin/python ] || { python3 -m venv build/venv && build/venv/bin/pip install -q Pillow fonttools numpy; }

@@ -30,7 +30,7 @@ git -C "$WORK" submodule update --init --recursive -q
 
 git -C "$WORK" apply "$ROOT/patches/felucca-drum.patch"
 cp "$ROOT"/overlay/tools/*.py "$WORK/tools/"
-cp "$ROOT"/overlay/firmware/src/*.c "$WORK/firmware/src/"
+cp "$ROOT"/overlay/firmware/src/*.c "$ROOT"/overlay/firmware/src/*.h "$WORK/firmware/src/"
 [ "${KEEP_CC0:-0}" = 1 ] || rm -rf "$WORK/assets/samples-cc0"
 
 export FELUCCA_DRUMONLY=1 FELUCCA_SLICE=0 FELUCCA_ADPCM=0
