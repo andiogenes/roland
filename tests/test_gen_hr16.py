@@ -67,7 +67,7 @@ def make_pack(d):
 
 
 def run(*args, env=None):
-    e = dict(os.environ)
+    e = dict(os.environ, ACOUSTIC_DIR="")          # (the bundled acoustic kit is tested in test_acoustic.py)
     e.update(env or {})
     return subprocess.run([sys.executable, "-I", str(GEN), *args], capture_output=True, text=True, env=e)
 
@@ -193,8 +193,19 @@ int main(void) {
         out = self.d / "o.h"
         r = run(str(out), env={"HR16_DIR": str(self.d / "pack"), "HR16_BUDGET": "40000"})
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("dropping kit B", r.stderr)
+        self.assertIn("dropping kit HR-B", r.stderr)
         self.assertIn("1 kits", r.stdout)
+
+    def test_acoustic_comes_first_and_is_never_dropped(self):
+        out = self.d / "o.h"
+        ac = str(ROOT / "assets" / "acoustic")
+        r = run(str(out), env={"HR16_DIR": str(self.d / "pack"), "ACOUSTIC_DIR": ac, "HR16_BUDGET": "90000"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("dropping kit HR-B", r.stderr)
+        self.assertIn("6 kits (ACOUS, AC-DP, AC-TI, AC-BR, AC-DU, HR-A)", r.stdout)
+        r = run(str(out), env={"HR16_DIR": str(self.d / "pack"), "ACOUSTIC_DIR": ac, "HR16_BUDGET": "20000"})
+        self.assertNotEqual(r.returncode, 0)                          # the acoustic samples alone are over
+        self.assertIn("over the 20000 byte budget", r.stderr)
 
     def test_budget_too_small(self):
         r = run(str(self.d / "o.h"), env={"HR16_DIR": str(self.d / "pack"), "HR16_BUDGET": "500"})
@@ -210,7 +221,7 @@ int main(void) {
     def test_missing_folder(self):
         r = run(str(self.d / "o.h"), env={"HR16_DIR": str(self.d / "nope")})
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("no such folder", r.stderr)
+        self.assertIn("no sample kits", r.stderr)
 
     def test_map(self):
         import json

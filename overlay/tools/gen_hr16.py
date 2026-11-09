@@ -7,7 +7,8 @@
   gen_hr16.py OUT.h --preview DIR   also write what the firmware will play (decoded ADPCM) as WAV files into DIR
 
 Environment (when run by build.py): HR16_DIR the folder of WAVs, HR16_MAP a JSON file that picks the files by hand,
-HR16_BUDGET the most bytes of ADPCM data to embed (default 98304), HR16_RATE the stored sample rate (default 22050),
+HR16_BUDGET the most bytes of ADPCM data to embed (default 147456), ACOUSTIC_DIR the acoustic kit (default
+assets/acoustic; empty: none; HR16_DIR empty: no HR-16 kits), HR16_RATE the stored sample rate (default 22050),
 HR16_MAX_KITS (default 6).
 
 Each lane of the DRUM engine (KICK SNARE CLAP HATCL HATOP TOM RIM BELL) takes one file per kit. Files are sorted into lanes
@@ -129,8 +130,10 @@ def resample(x, src, dst):
     return out
 
 
-def prepare(x, rate, lane, dst_rate):
-    """mono floats at `rate` -> ints (Q15 range) at dst_rate: DC removed, trimmed, faded, resampled, normalised"""
+def prepare(x, rate, lane, dst_rate, maxsec=None, fade_sec=FADE_SEC, shape=None):
+    """mono floats at `rate` -> ints (Q15 range) at dst_rate: DC removed, trimmed, shaped, faded, resampled, normalised.
+    maxsec: the longest the sample plays (default MAX_SEC[lane]); shape (hold s, tau s): after the hold the level falls as
+    exp(-t / tau), a shorter body for a drum that rings too long"""
     if not x:
         raise ValueError("empty sample")
     mean = sum(x) / len(x)
@@ -142,9 +145,12 @@ def prepare(x, rate, lane, dst_rate):
     a = next(i for i, v in enumerate(x) if abs(v) > thr)
     b = len(x) - next(i for i, v in enumerate(reversed(x)) if abs(v) > thr)
     x = x[a:b]
-    x = x[:max(1, int(MAX_SEC[lane] * rate))]
+    x = x[:max(1, int((maxsec or MAX_SEC[lane]) * rate))]
+    if shape:
+        hold, tau = shape
+        x = [v * (1.0 if i < hold * rate else math.exp(-(i - hold * rate) / (tau * rate))) for i, v in enumerate(x)]
     x = resample(x, rate, dst_rate)
-    fade = min(len(x), max(1, int(FADE_SEC * dst_rate)))
+    fade = min(len(x), max(1, int(fade_sec * dst_rate)))
     for k in range(fade):                          # the cut or the sample's own end fades out
         x[len(x) - 1 - k] *= k / fade
     peak = max(abs(v) for v in x) or 1.0
@@ -259,8 +265,22 @@ def scan(folder):
     return by_lane, unknown, files
 
 
+# SLOOP's acoustic drum kit (assets/acoustic: VCSL recordings, CC0), one sample a lane, and its five treatments, which the
+# firmware applies as it plays (eng_drum.c hr_run: TREAT_*) so all five share the samples
+ACOUSTIC_FILES = {"KICK": "10_kick_BDrumNew_hit_v5.wav", "SNARE": "11_snare_Snare2_HitSN_v7.wav",
+                  "CLAP": "13_clap_Clap_rr1.wav", "HATCL": "14_hihat_HitC_v3.wav", "HATOP": "15_ohat_HitO.wav",
+                  "TOM": "16_tomlo_TomL_HitS_v4.wav", "RIM": "12_rim_sidestick.wav",
+                  "BELL": "18_crash_susCymb2_hit_f1.wav"}
+ACOUSTIC_RATE = {"HATCL": 32000, "HATOP": 32000, "BELL": 32000}      # SLOOP: the metal keeps its top (the rest: HR16_RATE)
+ACOUSTIC_SHAPE = {"KICK": (0.03, 0.13), "TOM": (0.04, 0.22)}          # SLOOP GM_SHAPE: a kit's damped heads, not a concert drum
+ACOUSTIC_MAXSEC = {"HATOP": 0.6, "BELL": 0.6}                         # SLOOP GM_KEEP
+ACOUSTIC_FADE = {"HATOP": 0.16, "BELL": 0.16}                         # SLOOP GM_FADE
+TREATMENTS = [("ACOUS", "ACOUSTIC"), ("AC-DP", "AC DEEP"), ("AC-TI", "AC TIGHT"), ("AC-BR", "AC BRITE"),
+              ("AC-DU", "AC DUST")]      # ids 0..4 = eng_drum.c TREAT_NONE DEEP TIGHT BRIGHT DUST (SLOOP: kits 0..4)
+
+
 def plan_kits(folder, by_lane, map_file, max_kits):
-    """-> [(kit name, {lane: Path})]"""
+    """the HR-16 pack's kits -> [dict(name, preset, lanes {lane: Path}, treat, pack)]"""
     if map_file:
         m = json.loads(Path(map_file).read_text())
         kits = []
@@ -273,79 +293,101 @@ def plan_kits(folder, by_lane, map_file, max_kits):
                 if not p.is_file():
                     raise SystemExit(f"gen_hr16: map: {p} not found")
                 lanes[l] = p
-            kits.append((str(k.get("name", f"{len(kits) + 1}")), lanes))
+            n = str(k.get("name", f"{len(kits) + 1}"))
+            kits.append(dict(name=f"HR-{n}"[:5], preset=f"HR16 {n}"[:8], lanes=lanes, treat=0, pack="hr"))
         return kits
     missing = [l for l in LANES if not by_lane[l]]
     if missing:
         raise SystemExit("gen_hr16: no WAV file found for lane(s) " + ", ".join(missing) +
                          f" in {folder} (see --list; a JSON map picks files by hand)")
     nk = min(max_kits, max(len(by_lane[l]) for l in LANES))
-    return [(chr(ord("A") + k), {l: by_lane[l][k % len(by_lane[l])][2] for l in LANES}) for k in range(nk)]
+    return [dict(name=f"HR-{chr(65 + k)}", preset=f"HR16 {chr(65 + k)}",
+                 lanes={l: by_lane[l][k % len(by_lane[l])][2] for l in LANES}, treat=0, pack="hr") for k in range(nk)]
+
+
+def plan_acoustic(folder):
+    lanes = {}
+    for l, f in ACOUSTIC_FILES.items():
+        p = Path(folder) / f
+        if not p.is_file():
+            raise SystemExit(f"gen_hr16: {p} not found (the acoustic kit needs {', '.join(ACOUSTIC_FILES.values())})")
+        lanes[l] = p
+    return [dict(name=n, preset=pn, lanes=lanes, treat=t, pack="ac") for t, (n, pn) in enumerate(TREATMENTS)]
 
 
 # ------------------------------------------------------------------- build
 
-def build(folder, map_file, rate, budget, max_kits):
-    by_lane, unknown, _ = scan(folder)
-    kits = plan_kits(folder, by_lane, map_file, max_kits)
+def build(kits, rate, budget):
+    """-> (kits kept, samples, kit_idx, total bytes). Kits are dropped from the end of the HR-16 pack (never the acoustic
+    treatments: they cost nothing) until the data fits."""
     while True:
         samples, order, kit_idx = [], {}, []
-        for name, lanes in kits:
+        for kit in kits:
             row = []
             for l in LANES:
-                key = (l, lanes[l])
+                key = (kit["pack"], l, kit["lanes"][l])
                 if key not in order:
+                    ac = kit["pack"] == "ac"
+                    sr_out = ACOUSTIC_RATE.get(l, rate) if ac else rate
                     try:
-                        x, sr = read_wav(lanes[l])
-                        pcm = prepare(x, sr, l, rate)
+                        x, sr = read_wav(kit["lanes"][l])
+                        pcm = prepare(x, sr, l, sr_out, maxsec=ACOUSTIC_MAXSEC.get(l) if ac else None,
+                                      fade_sec=ACOUSTIC_FADE.get(l, FADE_SEC) if ac else FADE_SEC,
+                                      shape=ACOUSTIC_SHAPE.get(l) if ac else None)
                     except ValueError as e:
-                        raise SystemExit(f"gen_hr16: {lanes[l]}: {e}")
+                        raise SystemExit(f"gen_hr16: {kit['lanes'][l]}: {e}")
                     data, dec = ima_encode(pcm)
                     order[key] = len(samples)
-                    samples.append({"lane": l, "path": lanes[l], "n": len(pcm), "data": data, "dec": dec})
+                    samples.append({"lane": l, "path": kit["lanes"][l], "n": len(pcm), "data": data, "dec": dec,
+                                    "rate": sr_out})
                 row.append(order[key])
             kit_idx.append(row)
-        total = sum(len(s["data"]) for s in samples)
-        if total <= budget or len(kits) == 1:
+        total = sum(len(x["data"]) for x in samples)
+        if total <= budget:
             break
+        hr = [i for i, k in enumerate(kits) if k["pack"] == "hr"]
+        if not hr:
+            raise SystemExit(f"gen_hr16: the sample data is {total} bytes, over the {budget} byte budget "
+                             f"(HR16_BUDGET higher)")
+        if len(hr) == 1 and not any(k["pack"] == "ac" for k in kits):
+            raise SystemExit(f"gen_hr16: one kit is {total} bytes, over the {budget} byte budget "
+                             f"(HR16_RATE lower, e.g. 16000, or HR16_BUDGET higher)")
         print(f"gen_hr16: {total} bytes over the {budget} byte budget with {len(kits)} kits: dropping kit "
-              f"{kits[-1][0]}", file=sys.stderr)
-        kits = kits[:-1]
-    if total > budget:
-        raise SystemExit(f"gen_hr16: one kit is {total} bytes, over the {budget} byte budget "
-                         f"(HR16_RATE lower, e.g. 16000, or HR16_BUDGET higher)")
-    return kits, samples, kit_idx, total, unknown
+              f"{kits[hr[-1]]['name']}", file=sys.stderr)
+        kits = [k for i, k in enumerate(kits) if i != hr[-1]]
+    return kits, samples, kit_idx, total
 
 
-def header(kits, samples, kit_idx, rate, folder):
+def header(kits, samples, kit_idx):
     off, offs = 0, []
-    for s in samples:
+    for x in samples:
         offs.append(off)
-        off += len(s["data"])
-    blob = b"".join(s["data"] for s in samples)
-    q16 = int(round(rate / 44100.0 * 65536))
-    L = ["/* Generated by tools/gen_hr16.py: DRUM's HR-16 sample kits. Do not edit; do not commit. */",
-         f"/* {len(kits)} kits, {len(samples)} samples, {len(blob)} bytes of IMA ADPCM at {rate} Hz */",
+        off += len(x["data"])
+    blob = b"".join(x["data"] for x in samples)
+    L = ["/* Generated by tools/gen_hr16.py: DRUM's sample kits (HR-16, acoustic). Do not edit; do not commit. */",
+         f"/* {len(kits)} kits, {len(samples)} samples, {len(blob)} bytes of IMA ADPCM */",
          f"#define HR16_NKITS {len(kits)}",
          f"#define HR16_NSAMP {len(samples)}"]
-    L.append("#define HR16_SAMP_INIT \\")
-    for i, s in enumerate(samples):
-        L.append(f"    {{{offs[i]}u, {s['n']}u, {q16}u}}{',' if i + 1 < len(samples) else ''} /* {s['lane']} {s['path'].name} */ \\")
+    L.append("#define HR16_SAMP_INIT \\")                  # {byte offset, samples, source rate / 44100 (Q16)}
+    for i, x in enumerate(samples):
+        q16 = int(round(x["rate"] / 44100.0 * 65536))
+        L.append(f"    {{{offs[i]}u, {x['n']}u, {q16}u}}{',' if i + 1 < len(samples) else ''} /* {x['lane']} {x['path'].name} */ \\")
     L.append("")
     L.append("static const uint8_t HR16_KIT[HR16_NKITS][8] = {")
-    for (name, _), row in zip(kits, kit_idx):
-        L.append("    {" + ", ".join(str(v) for v in row) + "},   /* " + name + ": " + " ".join(LANES) + " */")
+    for k, row in zip(kits, kit_idx):
+        L.append("    {" + ", ".join(str(v) for v in row) + "},   /* " + k["name"] + ": " + " ".join(LANES) + " */")
     L.append("};")
-    names = [f"HR-{n}"[:5] for n, _ in kits]
+    L.append("/* a kit's treatment (eng_drum.c TREAT_*): 0 none, 1 DEEP, 2 TIGHT, 3 BRIGHT, 4 DUST */")
+    L.append("static const uint8_t HR16_TREAT[HR16_NKITS] = {" + ", ".join(str(k["treat"]) for k in kits) + "};")
     L.append("#define HR16_FOR_EACH_KIT(X) \\")      # X(index, KIT name (5 characters), preset name (8))
-    for k, (n, _) in enumerate(kits):
-        L.append(f'    X({k}, "HR-{n}", "HR16 {n}"){" \\" if k + 1 < len(kits) else ""}')
+    for i, k in enumerate(kits):
+        L.append(f'    X({i}, "{k["name"]}", "{k["preset"]}"){" \\" if i + 1 < len(kits) else ""}')
     L.append("")
     L.append(f"static const uint8_t HR16_DATA[{max(1, len(blob))}] = {{")
     for i in range(0, len(blob), 24):
         L.append("    " + ", ".join(str(b) for b in blob[i:i + 24]) + ",")
     L.append("};")
-    return "\n".join(L) + "\n", names
+    return "\n".join(L) + "\n"
 
 
 def main():
@@ -355,12 +397,13 @@ def main():
     ap.add_argument("--preview", metavar="DIR")
     a = ap.parse_args()
     env = os.environ.get
-    folder = env("HR16_DIR", "assets/hr16")
+    hr_dir = env("HR16_DIR", "assets/hr16")
+    ac_dir = env("ACOUSTIC_DIR", "assets/acoustic")
     rate = int(env("HR16_RATE", "22050"))
-    budget = int(env("HR16_BUDGET", "98304"))
+    budget = int(env("HR16_BUDGET", "147456"))
     max_kits = int(env("HR16_MAX_KITS", "6"))
     if a.list:
-        folder = a.out or folder
+        folder = a.out or hr_dir
         by_lane, unknown, files = scan(folder)
         print(f"{len(files)} WAV files in {folder}")
         for l in LANES:
@@ -370,21 +413,35 @@ def main():
         return 0
     if not a.out:
         ap.error("OUT.h")
-    if not Path(folder).is_dir():
-        raise SystemExit(f"gen_hr16: {folder}: no such folder (put the HR-16 WAV files there, or set HR16_DIR)")
-    kits, samples, kit_idx, total, unknown = build(folder, env("HR16_MAP"), rate, budget, max_kits)
-    text, names = header(kits, samples, kit_idx, rate, folder)
+    kits = []
+    if ac_dir and Path(ac_dir).is_dir():
+        kits += plan_acoustic(ac_dir)
+    unknown = []
+    if hr_dir and Path(hr_dir).is_dir() and any(Path(hr_dir).rglob("*.wav")):
+        by_lane, unknown, _ = scan(hr_dir)
+        kits += plan_kits(hr_dir, by_lane, env("HR16_MAP"), max_kits)
+    if not kits:
+        raise SystemExit(f"gen_hr16: no sample kits: no acoustic kit in {ac_dir!r} (ACOUSTIC_DIR) and no WAV files in "
+                         f"{hr_dir!r} (HR16_DIR: put the HR-16 WAV files there)")
+    kits, samples, kit_idx, total = build(kits, rate, budget)
+    text = header(kits, samples, kit_idx)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(text)
-    print(f"gen_hr16: {len(kits)} kits ({', '.join(names)}), {len(samples)} samples, {total} of {budget} bytes, {rate} Hz")
-    for name, row in zip((k[0] for k in kits), kit_idx):
-        print(f"  kit {name}: " + "  ".join(f"{l}={samples[i]['path'].name}" for l, i in zip(LANES, row)))
+    print(f"gen_hr16: {len(kits)} kits ({', '.join(k['name'] for k in kits)}), {len(samples)} samples, "
+          f"{total} of {budget} bytes, {rate} Hz")
+    seen = set()
+    for k, row in zip(kits, kit_idx):
+        if k["pack"] == "ac" and "ac" in seen:
+            continue
+        seen.add(k["pack"])
+        label = ("acoustic, treatments " + ", ".join(x["name"] for x in kits if x["pack"] == "ac")) if k["pack"] == "ac" else k["name"]
+        print(f"  kit {label}: " + "  ".join(f"{l}={samples[i]['path'].name}" for l, i in zip(LANES, row)))
     if unknown:
         print("  not used (no lane in the name): " + ", ".join(unknown))
     if a.preview:
         Path(a.preview).mkdir(parents=True, exist_ok=True)
-        for i, s in enumerate(samples):
-            write_wav(Path(a.preview) / f"{i:02d}_{s['lane']}_{s['path'].stem}.wav", s["dec"], rate)
+        for i, x in enumerate(samples):
+            write_wav(Path(a.preview) / f"{i:02d}_{x['lane']}_{x['path'].stem}.wav", x["dec"], x["rate"])
     return 0
 
 

@@ -3,9 +3,10 @@
 # Build the drum machine firmware for the M-VAVE FM-1: Felucca (pinned) + patches/felucca-drum.patch + overlay/.
 #   ./build_drum.sh
 # Environment:
-#   HR16_DIR        folder of Alesis HR-16B WAV files (default assets/hr16). Without WAVs there: synthesized drums only.
+#   HR16_DIR        folder of Alesis HR-16B WAV files (default assets/hr16). Without WAVs there: no HR-16 kits.
+#   FELUCCA_ACOUSTIC 1 (default): add SLOOP's acoustic kit (assets/acoustic, CC0) in its five treatments; 0: leave it out
 #   HR16_MAP        JSON file that picks the files of each kit by hand (see overlay/tools/gen_hr16.py)
-#   HR16_BUDGET     most bytes of sample data to embed (default 98304)
+#   HR16_BUDGET     most bytes of sample data to embed, all sample kits together (default 147456)
 #   JIELI_TOOLCHAIN, AC79_SDK   as Felucca's BUILDING.md (tools/get_toolchain.sh and the SDK clone there)
 #   FELUCCA_TR606   1 (default): add SLOOP's TR-606 kit; 0: leave it out.  TR606_GAIN_DB: its level in dB (default -3)
 #   KEEP_CC0=1      keep Felucca's CC0 piano / flute / sax in the image (dropped by default: a drum machine does not use
@@ -38,8 +39,14 @@ if ls "$HR16_DIR"/*.wav "$HR16_DIR"/*/*.wav >/dev/null 2>&1; then
     export FELUCCA_HR16=1 HR16_DIR
     echo "build_drum: HR-16 samples from $HR16_DIR"
 else
-    export FELUCCA_HR16=0
-    echo "build_drum: no WAV files in $HR16_DIR: synthesized drums only"
+    export FELUCCA_HR16=0 HR16_DIR=""
+    echo "build_drum: no WAV files in $HR16_DIR: no HR-16 kits"
+fi
+export FELUCCA_ACOUSTIC="${FELUCCA_ACOUSTIC:-1}"      # SLOOP's acoustic kit and its treatments (assets/acoustic, CC0)
+if [ "$FELUCCA_ACOUSTIC" = 1 ]; then
+    export ACOUSTIC_DIR="$ROOT/assets/acoustic"
+else
+    export ACOUSTIC_DIR=""
 fi
 
 (cd "$WORK" && ./build.sh)

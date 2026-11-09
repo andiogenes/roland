@@ -1,8 +1,8 @@
 diff --git a/firmware/src/core.h b/firmware/src/core.h
-index 2c1b980..d715bea 100644
+index 2c1b980..106fef3 100644
 --- a/firmware/src/core.h
 +++ b/firmware/src/core.h
-@@ -35,11 +35,21 @@
+@@ -35,11 +35,25 @@
  #if FELUCCA_ADPCM && !FELUCCA_SLICE
  #error "FELUCCA_ADPCM needs FELUCCA_SLICE (ADPCM is engine 14, after SLICE)"
  #endif
@@ -16,6 +16,10 @@ index 2c1b980..d715bea 100644
 +#ifndef FELUCCA_HR16
 +#define FELUCCA_HR16 0           /* DRUM's HR-16 sample kits (eng_drum.c, build/gen/felucca_hr16.h from tools/gen_hr16.py) */
 +#endif
++#ifndef FELUCCA_ACOUSTIC
++#define FELUCCA_ACOUSTIC 0       /* DRUM's acoustic kit (SLOOP's CC0 recordings) and its four treatments: sample kits too */
++#endif
++#define FELUCCA_SMPKITS (FELUCCA_HR16 || FELUCCA_ACOUSTIC)   /* any sample kits: eng_drum.c hr_*, felucca_hr16.h */
  #define NENGINES (13 + FELUCCA_SLICE + FELUCCA_ADPCM)   /* SLICE (13), then ADPCM (14): the other engines keep their
                                                           * numbers */
  #define ENGI_ADPCM 14u
@@ -25,7 +29,7 @@ index 2c1b980..d715bea 100644
                                                  * in the display order of engines.c ENGINE_ORDER */
  #define UP_SLOTS 32u             /* user presets (upreset.c) */
  
-@@ -118,6 +128,7 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const
+@@ -118,6 +132,7 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const
  /* engine indices the stores name (engines.c ENGINES[]: append-only) */
  #define ENGI_PHYS 9u
  #define ENGI_DRUM 10u
@@ -34,10 +38,10 @@ index 2c1b980..d715bea 100644
   * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
   * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
 diff --git a/firmware/src/eng_drum.c b/firmware/src/eng_drum.c
-index eefafea..5674bd6 100644
+index eefafea..58f934f 100644
 --- a/firmware/src/eng_drum.c
 +++ b/firmware/src/eng_drum.c
-@@ -32,17 +32,53 @@
+@@ -32,17 +32,54 @@
   * sends, DIST, the SLICER, LFO DEST AMP, velocity, the matrix's AMP and its E1..E8 (the knobs, per
   * block) do. A released key does not end a hit.
   *
@@ -46,11 +50,12 @@ index eefafea..5674bd6 100644
 + * same mute / LEVEL / DRV / knee. TUNE moves its pitch (and the brightness of the noise sounds), DECY its decays
 + * (-4..+3 steps, per hit); TONE, SNAP, KICK and ACC do nothing there. A closed hat chokes the open hat.
 + *
-+ * HR-16 kits (FELUCCA_HR16, build/gen/felucca_hr16.h made by tools/gen_hr16.py from a folder of WAV files): KIT values
++ * Sample kits (FELUCCA_HR16, FELUCCA_ACOUSTIC; build/gen/felucca_hr16.h made by tools/gen_hr16.py from the HR-16 WAV files
++ * and SLOOP's CC0 acoustic recordings, assets/acoustic): KIT values
 + * from DK_HR on play one recorded sample per lane (IMA ADPCM, one-shot) instead of the synthesized lane: the same GM map,
 + * lanes, grid, mutes, LEVELs, choke and ACC-free velocity. TUNE (the sample's pitch, with the GM note's offset), TONE (below
-+ * 64: darker), DECY (below 64: shorter) and DRV apply; SNAP, KICK and ACC do nothing there. A hit keeps the sample it was
-+ * struck with. The sample state lives in the voice (hr_*), not in the lane, so the part's engine memory is as it was.
++ * 64: darker), DECY (below 64: shorter) and DRV apply; SNAP, KICK and ACC do nothing there. The acoustic kit comes in SLOOP's five treatments, one
++ * sample set played five ways (TREAT_*, hr_run). A hit keeps the sample it was struck with. The sample state lives in the voice (hr_*), not in the lane, so the part's engine memory is as it was.
 + *
   * State: 8 lanes per part in the part's engine memory (engines.c eng_mem; drum_kit_of: the parameters, coefficients, voice and metal
   * source of each lane). */
@@ -62,7 +67,7 @@ index eefafea..5674bd6 100644
  /* 1.5.6 (Discussion #216): DEEP TIGHT PERC (9..11), kits put together from the five's pieces (drum_voice.c DV_KIT),
   * appended. Firmware before 1.5.6 clamps 9..11 to 8 (77) when it loads them (param_fit) */
 -enum { DK_STD, DK_HAND, DK_CYM, DK_HCYM, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC, DK_COUNT };   /* (stored values) */
-+#if FELUCCA_HR16
++#if FELUCCA_SMPKITS
 +#include "felucca_hr16.h"        /* HR16_NKITS, HR16_NSAMP, HR16_DATA, HR16_SAMP_INIT, HR16_KIT, HR16_FOR_EACH_KIT(X) with X(index, KIT name, preset name) */
 +#define DK_NHR HR16_NKITS
 +#else
@@ -73,7 +78,7 @@ index eefafea..5674bd6 100644
 +       DK_606,                              /* TR606 (FELUCCA_TR606: SLOOP's synthesized TR-606) */
 +       DK_HR = DK_606 + FELUCCA_TR606,      /* the HR-16 kits after it */
 +       DK_COUNT = DK_HR + DK_NHR };   /* (stored values) */
-+#if FELUCCA_HR16
++#if FELUCCA_SMPKITS
 +#define HR_PLAYS(k, kn, pn) DK_HR + (k),
 +#define HR_NAME(k, kn, pn) kn,
 +#define HR_PRESET(k, kn, pn) {pn, {DK_HR + (k), 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 12), PAT(12)},
@@ -86,14 +91,14 @@ index eefafea..5674bd6 100644
 +#if FELUCCA_TR606
 +                                           , DK_606
 +#endif
-+#if FELUCCA_HR16
++#if FELUCCA_SMPKITS
 +                                           , HR16_FOR_EACH_KIT(HR_PLAYS)   /* (each plays as itself: no alias) */
 +#endif
 +};
  static uint32_t drum_kit_plays(int32_t v) { return DK_PLAYS[clamp(v, 0, DK_COUNT - 1)]; }
  /* the model kits' pieces where a lane plays another than its own (the lane's name): 1 TOM -> CONGA, 2 RIM -> CLAVE,
   * 4 BELL -> CYM */
-@@ -56,6 +92,9 @@ typedef struct {
+@@ -56,6 +93,9 @@ typedef struct {
      dv_coef_t c;
      dv_voice_t v;
      dv_metal_t mb;
@@ -103,7 +108,7 @@ index eefafea..5674bd6 100644
      uint8_t owner;               /* the voice playing the lane: index + 1, 0 = none */
      uint8_t role;                /* the drum struck (DVT_*) */
      int8_t st;                   /* its semitones from the designed pitch (the GM map) */
-@@ -70,7 +109,15 @@ ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
+@@ -70,7 +110,15 @@ ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
  static uint8_t drum_mute[NPART];
  
  /* 1..3 named as the kit they play: aliases, never shown or offered (EDITOR_PROTOCOL.md: retired values) */
@@ -112,7 +117,7 @@ index eefafea..5674bd6 100644
 +#if FELUCCA_TR606
 +                                         , "TR606"
 +#endif
-+#if FELUCCA_HR16
++#if FELUCCA_SMPKITS
 +                                         , HR16_FOR_EACH_KIT(HR_NAME)
 +#endif
 +};
@@ -120,7 +125,7 @@ index eefafea..5674bd6 100644
  static const char *const N_DRUM_KICK[] = {"PUNCH", "ROUND"};
  
  /* General MIDI notes 35..81 -> the drum (DVT_*; DVT_PUNCH: the kick KICK picks) and semitones from its
-@@ -92,7 +139,7 @@ static uint32_t drum_gm(const int16_t *p, uint32_t note, int32_t *st)
+@@ -92,7 +140,7 @@ static uint32_t drum_gm(const int16_t *p, uint32_t note, int32_t *st)
      uint32_t n = note >= 35u && note <= 81u ? note : 36u + (note + 120u - 36u) % 12u, t = (uint32_t)DRUM_GM[n - 35u][0];
      uint32_t kit = drum_kit_plays(p[P_E0]);           /* STD, the model kits */
      *st = DRUM_GM[n - 35u][1];
@@ -129,7 +134,7 @@ index eefafea..5674bd6 100644
          return DV_KTYPE(kit - DK_80 + 1u, DV_TYPE_LANE[t]);
      return t == DVT_PUNCH && p[P_E6] > 0 ? DVT_ROUND : t;
  }
-@@ -114,7 +161,7 @@ static uint32_t drum_lane(uint32_t note)
+@@ -114,7 +162,7 @@ static uint32_t drum_lane(uint32_t note)
  static uint32_t drum_swaps(const track_t *t)
  {
      uint32_t kit = drum_kit_plays(t->p[P_E0]);
@@ -138,12 +143,12 @@ index eefafea..5674bd6 100644
  }
  
  /* the lane's name as the track's KIT plays it (5 characters at most) */
-@@ -197,6 +244,139 @@ static drum_lane_t *drum_lane_of(track_t *t, const voice_t *v)
+@@ -197,6 +245,153 @@ static drum_lane_t *drum_lane_of(track_t *t, const voice_t *v)
      return L->owner == i + 1u ? L : 0;
  }
  
 +/* ------------------------------------------------------ HR-16 samples --- */
-+#if FELUCCA_HR16
++#if FELUCCA_SMPKITS
 +/* One recorded hit per lane (tools/gen_hr16.py): IMA ADPCM from rest (predictor 0, index 0), played once, the codes as
 + * eng_sample.c's (IMA_STEP / IMA_IDX). A sample voice keeps its state in the voice: s[0] the lane (as a synthesized hit),
 + * s[1] step index, s[2] previous and s[3] current output, s[4] the sample | HRV_ON | HRV_END, s[5] predictor, s[6] the
@@ -153,6 +158,10 @@ index eefafea..5674bd6 100644
 +#define HRV_ON (1 << 16)
 +#define HRV_END (1 << 17)
 +#define HRV_IDX 0xFFFF
++/* a kit's treatment (HR16_TREAT, from tools/gen_hr16.py): SLOOP's acoustic kit variations, played over the same samples:
++ * DEEP the pitch down 5 semitones (the kick, notes up to 36) or 2, and a soft low-pass; TIGHT a quick decay; BRIGHT up 2
++ * semitones; DUST down 1 semitone, a harder low-pass and 8 bits */
++enum { TREAT_NONE, TREAT_DEEP, TREAT_TIGHT, TREAT_BRIGHT, TREAT_DUST };
 +
 +static inline int32_t hr_next(const hr_samp_t *z, voice_t *v)
 +{
@@ -204,7 +213,9 @@ index eefafea..5674bd6 100644
 +{
 +    const int16_t *p = t->p;
 +    const hr_samp_t *z = &HR16_SAMP[((uint32_t)v->s[4] & HRV_IDX) % HR16_NSAMP];
-+    int32_t d16 = clamp(st * 16 + (p[P_E1] - 64) * 3, -1536, 576);
++    uint32_t tr = HR16_TREAT[(uint32_t)(p[P_E0] - DK_HR) % HR16_NKITS];
++    int32_t sh = tr == TREAT_DEEP ? (v->note <= 36u ? -5 : -2) : tr == TREAT_BRIGHT ? 2 : tr == TREAT_DUST ? -1 : 0;
++    int32_t d16 = clamp((st + sh) * 16 + (p[P_E1] - 64) * 3, -1536, 576);
 +    uint32_t r = pow2_q16(d16), stepq = (r >> 8) * (z->rate >> 8), frac = v->ph[1], i = 0;
 +    int32_t dec = clamp(p[P_E3], 0, 127), tone = clamp(p[P_E2], 0, 127), env = v->s[6], lp = 32767, dc = 32768;
 +    if (dec < 64) {                                      /* e^-6.9 (-60 dB) over 1300 + 22 dec^2 samples */
@@ -215,6 +226,12 @@ index eefafea..5674bd6 100644
 +        dc = 30508;
 +    if (tone < 64)
 +        lp = 3000 + tone * (32767 - 3000) / 64;
++    if (tr == TREAT_DEEP && lp > 8192)                   /* SLOOP: s += (s - f) >> 2 */
++        lp = 8192;
++    if (tr == TREAT_DUST && lp > 16384)                  /* >> 1 */
++        lp = 16384;
++    if (tr == TREAT_TIGHT && dc > 32752)                 /* SLOOP: env -= env >> 11 */
++        dc = 32752;
 +    for (; i < n; i++) {
 +        int32_t s;
 +        frac += stepq;
@@ -239,6 +256,8 @@ index eefafea..5674bd6 100644
 +            v->s[7] += mulq15(s - v->s[7], lp);
 +            s = v->s[7];
 +        }
++        if (tr == TREAT_DUST)
++            s = (s >> 8) * 256;
 +        y[i] = s;
 +        if (env <= 1 && dc < 32768)                      /* faded out (DECY, a choke) */
 +            v->s[4] |= HRV_END;
@@ -278,7 +297,7 @@ index eefafea..5674bd6 100644
  /* Different GM pitches on a lane still share its one sounding voice. */
  static voice_t *drum_reuse(track_t *t, uint32_t note)
  {
-@@ -222,6 +402,35 @@ static void drum_note_on(track_t *t, voice_t *v)
+@@ -222,6 +417,35 @@ static void drum_note_on(track_t *t, voice_t *v)
      if (L->owner == i + 1u)                              /* this voice played another lane: it stops there */
          L->owner = 0;
      L = &K[lane];
@@ -298,7 +317,7 @@ index eefafea..5674bd6 100644
 +        return;
 +    }
 +#endif
-+#if FELUCCA_HR16
++#if FELUCCA_SMPKITS
 +    if (t->p[P_E0] >= DK_HR) {                           /* an HR-16 kit: the lane's recorded hit */
 +        L->st = (int8_t)st;
 +        L->owner = (uint8_t)(i + 1u);
@@ -314,7 +333,7 @@ index eefafea..5674bd6 100644
      if (L->role != role || L->v.type != dv_run_type(role)) {   /* another drum on this lane: from rest */
          dv_init(&L->v, role);
          L->key.type = 0xFF;
-@@ -247,7 +456,7 @@ static int32_t drum_amp(track_t *t, voice_t *v, int32_t adsr)
+@@ -247,7 +471,7 @@ static int32_t drum_amp(track_t *t, voice_t *v, int32_t adsr)
      (void)adsr;
      if (!v->active)                                      /* (taken for another part: env_tick ended it) */
          return 0;
@@ -323,7 +342,7 @@ index eefafea..5674bd6 100644
          v->active = v->gate = 0;
          v->stage = 0;
          v->env = 0;
-@@ -278,22 +487,35 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
+@@ -278,22 +502,35 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
      if (n > CTL)
          n = CTL;
      r = L->role;
@@ -345,7 +364,7 @@ index eefafea..5674bd6 100644
 +            v->s[4] |= SLV_END;
 +    } else
 +#endif
-+#if FELUCCA_HR16
++#if FELUCCA_SMPKITS
 +    if (v->s[4] & HRV_ON) {                              /* an HR-16 hit: the sample, then the same mute / DRV / knee */
 +        hr_run(t, v, L->st, y, n);
 +    } else
@@ -374,21 +393,21 @@ index eefafea..5674bd6 100644
      if ((drum_mute[(uint32_t)(t - trk) % NPART] >> ((uint32_t)v->s[0] & (DV_NLANE - 1u))) & 1u)
          return;                                          /* (a muted lane rings on unheard) */
      if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
-@@ -322,6 +544,12 @@ static const preset_t DRUM_PRESETS[] = {
+@@ -322,6 +559,12 @@ static const preset_t DRUM_PRESETS[] = {
      {"DEEP KIT", {DK_DEEP, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 28), PAT(12)},
      {"TIGHT KIT", {DK_TIGHT, 64, 64, 56, 64, 100, 0, 16}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 8), PAT(12)},
      {"PERC KIT", {DK_PERC, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 24), PAT(12)},
 +#if FELUCCA_TR606
 +    {"TR-606", {DK_606, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 12), PAT(12)},   /* (preset 4) */
 +#endif
-+#if FELUCCA_HR16
++#if FELUCCA_SMPKITS
 +    HR16_FOR_EACH_KIT(HR_PRESET)                         /* the HR-16 kits (presets 4..) */
 +#endif
  };
  
  static const engine_t ENG_DRUM = {
 diff --git a/firmware/src/engines.c b/firmware/src/engines.c
-index af4e4c6..2455961 100644
+index af4e4c6..a954bff 100644
 --- a/firmware/src/engines.c
 +++ b/firmware/src/engines.c
 @@ -122,6 +122,10 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
@@ -432,10 +451,10 @@ index af4e4c6..2455961 100644
  
  /* the parts at power-on (engine, preset, PATTERNS[n - 1] in the sequencer, 0 = empty: all are): bass, pad, lead, drums */
 +#if FELUCCA_DRUMONLY
-+/* DRUM KIT, then TR-606 (preset 4, after PERC KIT) or DEEP KIT, TIGHT KIT, and the first HR-16 kit (the preset after TR-606)
-+ * or PERC KIT (eng_drum.c DRUM_PRESETS) */
++/* DRUM KIT, then TR-606 (preset 4, after PERC KIT) or DEEP KIT, TIGHT KIT, and the first sample kit (the preset after TR-606:
++ * the acoustic kit, else the first HR-16 one) or PERC KIT (eng_drum.c DRUM_PRESETS) */
 +static const uint8_t TRK_DEF[NPART][3] = {{ENGI_DRUM, 0, 0}, {ENGI_DRUM, FELUCCA_TR606 ? 4 : 1, 0}, {ENGI_DRUM, 2, 0},
-+                                          {ENGI_DRUM, FELUCCA_HR16 ? 4 + FELUCCA_TR606 : 3, 0}};
++                                          {ENGI_DRUM, FELUCCA_SMPKITS ? 4 + FELUCCA_TR606 : 3, 0}};
 +#else
  static const uint8_t TRK_DEF[NPART][3] = {{0, 4, 0}, {ENGI_FM6, 4, 0}, {3, 0, 0}, {ENGI_DRUM, 0, 0}}; /* ANALOG ACID,
                                                                         * FM6 PAD (was DIGITAL PAD), LOFI PULSE LD, DRUM KIT */
@@ -464,27 +483,28 @@ index 4766bf6..2e42523 100644
  static uint32_t up_count(void)                 /* used slots */
  {
 diff --git a/tools/build.py b/tools/build.py
-index b40a201..1005007 100755
+index b40a201..27db869 100755
 --- a/tools/build.py
 +++ b/tools/build.py
-@@ -108,6 +108,10 @@ def generate():
+@@ -108,6 +108,11 @@ def generate():
              [tools / "gen_fm6_patches.py", GEN / "felucca_fm6.h"],
              [tools / "gen_samples.py", GEN / "felucca_samples.h"],
              [tools / "gen_adpcm.py", GEN / "felucca_adpcm.h"]]
 +    if os.environ.get("FELUCCA_TR606") == "1":   # DRUM's TR606 kit: tools/gen_tr606.py (TR606_GAIN_DB)
 +        cmds.append([tools / "gen_tr606.py", GEN / "felucca_tr606.h"])
-+    if os.environ.get("FELUCCA_HR16") == "1":    # DRUM's HR-16 kits: tools/gen_hr16.py (HR16_DIR, HR16_MAP, HR16_BUDGET)
++    if "1" in (os.environ.get("FELUCCA_HR16"), os.environ.get("FELUCCA_ACOUSTIC")):   # DRUM's sample kits: tools/gen_hr16.py
++        #                                       (HR16_DIR, HR16_MAP, HR16_BUDGET, ACOUSTIC_DIR; an empty one leaves its kits out)
 +        cmds.append([tools / "gen_hr16.py", GEN / "felucca_hr16.h"])
      procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True) for c in cmds]
      failed = []
-@@ -205,7 +209,8 @@ def build_app():
+@@ -205,7 +210,8 @@ def build_app():
      flags = [*CFLAGS, *HAL_INC, "-Ifirmware/src", "-Ibuild/gen"]
      for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
                   "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_FM4",
 -                 "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST", "FELUCCA_CPU2", "FELUCCA_ADPCM"):
 +                 "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST", "FELUCCA_CPU2", "FELUCCA_ADPCM",
-+                 "FELUCCA_DRUMONLY", "FELUCCA_HR16", "FELUCCA_TR606"):
++                 "FELUCCA_DRUMONLY", "FELUCCA_HR16", "FELUCCA_TR606", "FELUCCA_ACOUSTIC"):
          v = os.environ.get(flag)    # unset: the default in firmware/src/felucca.c
          if v in ("0", "1"):
              flags.append(f"-D{flag}={v}")

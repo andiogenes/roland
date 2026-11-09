@@ -1,0 +1,15 @@
+Acoustic drum kit: source material for the ACOUS kits (overlay/tools/gen_hr16.py).
+Licence: CC0 1.0 Universal (public domain dedication)  https://creativecommons.org/publicdomain/zero/1.0/
+
+These are SLOOP's cut and normalised mono versions (https://github.com/isod89/sloop-fm1, assets/samples-cc0/KIT) of
+recordings from the Versilian Community Sample Library, VCSL (https://github.com/sgossner/VCSL, Versilian Studios /
+Sam Gossner, CC0-1.0). Thanks to Versilian Studios and to isod89. Per SLOOP's ATTRIBUTION.txt:
+
+10_kick_BDrumNew_hit_v5.wav       <- VCSL: Membranophones/Struck Membranophones/Bass Drum 1/BDrumNew_hit_v5_rr1_Sum.wav
+11_snare_Snare2_HitSN_v7.wav      <- VCSL: Membranophones/Struck Membranophones/Snare Drum, Modern 1/Snare2_HitSN_v7_rr1_Mid.wav
+12_rim_sidestick.wav              <- VCSL: Membranophones/Struck Membranophones/Legacy Snares/OldSnare/snare_rim.wav
+13_clap_Clap_rr1.wav              <- VCSL: Idiophones/Struck Idiophones/Claps/Clap_rr1.wav
+14_hihat_HitC_v3.wav              <- VCSL: Idiophones/Struck Idiophones/Hi-Hat Cymbal/HiHat_HitC_v3_rr1_Mid.wav
+15_ohat_HitO.wav                  <- VCSL: Idiophones/Struck Idiophones/Hi-Hat Cymbal/HiHat_HitO_rr1_Mid.wav
+16_tomlo_TomL_HitS_v4.wav         <- VCSL: Membranophones/Struck Membranophones/Tom 2/Stick/TomL_HitS_v4_rr1_Mid.wav
+18_crash_susCymb2_hit_f1.wav      <- VCSL: Idiophones/Struck Idiophones/Suspended Cymbal 2/susCymb2_hit_f1.wav
