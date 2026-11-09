@@ -1,0 +1,2 @@
+ir44: fs 44100: early peak 0.400, late peak 0.0082, late EDC -5 dB at 0.170 s and -35 dB at 0.571 s (RT60 about 0.80 s), first late sample at 11.0 ms
+ir22: fs 22050: early peak 0.694, late peak 0.0087, late EDC -5 dB at 0.173 s and -35 dB at 0.565 s (RT60 about 0.78 s), first late sample at 16.5 ms
