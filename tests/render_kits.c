@@ -192,6 +192,21 @@ int main(int argc, char **argv)
         printf("PRE on TR606: peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
         memset(ins_cfg, 0, sizeof ins_cfg);
     }
+    {   /* the master chain: slot A COMP (INPUT 80, OUT 90, 4:1), slot B HARM (HARMONICS 60, BALANCE 100, MODE GE, MIX 50) on the whole mix */
+        double rms;
+        uint32_t clips;
+        int32_t peak;
+        FILE *f;
+        mtrk[0].p[P_ITYPE] = IT_COMP; mtrk[0].p[P_IA] = 80; mtrk[0].p[P_IB] = 90; mtrk[0].p[P_IC] = 30; mtrk[0].p[P_ID] = 60; mtrk[0].p[P_IE] = 0; mtrk[0].p[P_IMIX] = 127;
+        mtrk[1].p[P_ITYPE] = IT_HARM; mtrk[1].p[P_IA] = 60; mtrk[1].p[P_IB] = 100; mtrk[1].p[P_IC] = 0; mtrk[1].p[P_IMIX] = 50;
+        snprintf(path, sizeof path, "%s/insert_master_TR606.wav", dir);
+        f = fopen(path, "wb");
+        wav_hdr(f, FS * 5u);
+        peak = play_kit(DK_606, f, &rms, &clips);
+        fclose(f);
+        printf("master chain on TR606: peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
+        mtrk[0].p[P_ITYPE] = mtrk[1].p[P_ITYPE] = 0;
+    }
     {   /* the delay as a tape echo: send 80, the delay's own defaults (FDBK 60 %, COLR 70, MIX 90) */
         double rms;
         uint32_t clips;

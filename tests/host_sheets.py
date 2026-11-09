@@ -58,6 +58,14 @@ if all((shots / f"NIGHT_insert1_{d}.png").exists() for d in devs):
     for d in devs:                        # the panel of each, 3x (a face is 220 x 88 on the device)
         Image.open(shots / f"NIGHT_insert1_{d}.png").crop((0, 0, 240, 126)).resize((720, 378), Image.NEAREST).save(out / f"insert_{d}.png")
 
+if (shots / "NIGHT_master_A.png").exists():      # the master chain's pages (MASTER A: PRE, MASTER B: COMP)
+    img = Image.new("RGB", (240 * 2 + 8, 256), (24, 24, 24))
+    dr = ImageDraw.Draw(img)
+    for i, (n, t) in enumerate((("master_A", "MASTER A: PRE"), ("master_B", "MASTER B: COMP"))):
+        img.paste(Image.open(shots / f"NIGHT_{n}.png"), (i * 248, 16))
+        dr.text((i * 248 + 4, 2), t, fill=(200, 200, 200))
+    img.save(out / "screens_master.png")
+
 # waveform + spectrogram per kit
 kits = [(f.stem, f.stem.split("_", 2)[2]) for f in sorted(audio.glob("kit_*.wav"))]
 W, RH, SH = 900, 110, 90

@@ -59,6 +59,22 @@ int main(int argc, char **argv)
                 write_ppm(out, "NIGHT", name);
             }
     }
+    {   /* the master chain: MASTER A with PRE, MASTER B with COMP, in colour */
+        static const int16_t M[2][6] = {{IT_PRE, 100, 90, 24, -20, 1}, {IT_COMP, 80, 100, 20, 90, 2}};
+        uint32_t m, q;
+        for (q = 0; q < NPALETTES && strcmp(UI_PALETTES[q].name, "NIGHT"); q++)
+            ;
+        for (m = 0; m < 2u; m++) {
+            setup(S_DRUM);
+            mtrk[m].p[P_ITYPE] = M[m][0]; mtrk[m].p[P_IA] = M[m][1]; mtrk[m].p[P_IB] = M[m][2];
+            mtrk[m].p[P_IC] = M[m][3]; mtrk[m].p[P_ID] = M[m][4]; mtrk[m].p[P_IE] = M[m][5];
+            go_title(m ? "MASTER B" : "MASTER A");
+            pal(q);
+            draw(S_DRUM);
+            write_ppm(out, "NIGHT", m ? "master_B" : "master_A");
+        }
+        mtrk[0].p[P_ITYPE] = mtrk[1].p[P_ITYPE] = 0;
+    }
     {   /* the same grid and KIT page in every palette (GREY MONO GREEN PAPER NIGHT) */
         static const char *const PALS[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};
         uint32_t q, pi;

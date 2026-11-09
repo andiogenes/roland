@@ -1,5 +1,5 @@
 diff --git a/firmware/src/core.h b/firmware/src/core.h
-index 2c1b980..1127baf 100644
+index 2c1b980..cdfe276 100644
 --- a/firmware/src/core.h
 +++ b/firmware/src/core.h
 @@ -35,11 +35,25 @@
@@ -61,6 +61,16 @@ index 2c1b980..1127baf 100644
  #endif
      int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
      /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
+@@ -367,6 +387,9 @@ typedef struct {
+ #define MCH_N 18u                    /* channels 1..16, OMNI, OFF */
+ 
+ static track_t trk[NTRK];        /* the instrument: four parts */
++#if FELUCCA_DRUMONLY
++static track_t mtrk[2];          /* the master chain's two slots: only their INSERT values (p[P_ITYPE .. P_IMIX]) and ins_run are used (fx.c) */
++#endif
+ static song_t song;
+ #define TSEL (&trk[song.sel])    /* the selected track */
+ /* MIDI IN TRACK: track i's channel 0..15, MCH_OMNI or MCH_OFF (song.mch), and set */
 diff --git a/firmware/src/editor.c b/firmware/src/editor.c
 index 3ab73de..150ca0b 100644
 --- a/firmware/src/editor.c
@@ -634,6 +644,42 @@ index af4e4c6..7373968 100644
                                                                         * FM6 PAD (was DIGITAL PAD), LOFI PULSE LD, DRUM KIT */
 +#endif
  static uint32_t trk_def_engine(uint32_t i) { return TRK_DEF[i % NPART][0]; }
+diff --git a/firmware/src/favorites.c b/firmware/src/favorites.c
+index 2986cab..a44cbae 100644
+--- a/firmware/src/favorites.c
++++ b/firmware/src/favorites.c
+@@ -100,3 +100,31 @@ static void cpal_store(const uint16_t *c)
+     }
+     ui_cpal_flags |= CPAL_STORED | CPAL_V2;
+ }
++
++/* the master chain's two slots in the settings record (fx.c mtrk): see fx.c mch_run */
++#if FELUCCA_DRUMONLY
++/* the settings record's bytes (favorites.factory[14]): 2 slots x 7 values (TYPE A B C D E MIX, each +64), the flag at [15] */
++static void mch_load(void)
++{
++    uint32_t k, j;
++    static const uint8_t ID[7] = {P_ITYPE, P_IA, P_IB, P_IC, P_ID, P_IE, P_IMIX};
++    for (k = 0; k < 2u; k++)
++        for (j = 0; j < 7u; j++)
++            mtrk[k].p[ID[j]] = favorites.factory[14][15] == 0xA5u && favorites.factory[14][7u * k + j] <= 191u ?
++                (int16_t)((int32_t)favorites.factory[14][7u * k + j] - 64) : (j == 0 ? 0 : TP[ID[j]].def);
++    for (k = 0; k < 2u; k++)
++        for (j = 0; j < 7u; j++)
++            mtrk[k].p[ID[j]] = (int16_t)clamp(mtrk[k].p[ID[j]], j ? -64 : 0, 127);
++    if (mtrk[0].p[P_ITYPE] >= IT_N) mtrk[0].p[P_ITYPE] = 0;
++    if (mtrk[1].p[P_ITYPE] >= IT_N) mtrk[1].p[P_ITYPE] = 0;
++}
++static void mch_store(void)
++{
++    uint32_t k, j;
++    static const uint8_t ID[7] = {P_ITYPE, P_IA, P_IB, P_IC, P_ID, P_IE, P_IMIX};
++    for (k = 0; k < 2u; k++)
++        for (j = 0; j < 7u; j++)
++            favorites.factory[14][7u * k + j] = (uint8_t)(mtrk[k].p[ID[j]] + 64);
++    favorites.factory[14][15] = 0xA5u;
++}
++#endif
 diff --git a/firmware/src/felucca.c b/firmware/src/felucca.c
 index 579413a..3646e7e 100644
 --- a/firmware/src/felucca.c
@@ -649,7 +695,7 @@ index 579413a..3646e7e 100644
  
  /* ------------------------------------------------- MIDI, sequencer --- */
 diff --git a/firmware/src/fx.c b/firmware/src/fx.c
-index d2bcf92..4c20666 100644
+index d2bcf92..c6f7ab4 100644
 --- a/firmware/src/fx.c
 +++ b/firmware/src/fx.c
 @@ -5,7 +5,9 @@
@@ -731,7 +777,7 @@ index d2bcf92..4c20666 100644
      rt = song.g[G_RTYPE];
      rt = rt == 1 || rt == 2 ? rt : 0;
      hl.side = 0;
-@@ -613,6 +629,103 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
+@@ -613,6 +629,125 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
      }
  }
  
@@ -764,9 +810,16 @@ index d2bcf92..4c20666 100644
 +    memset(&ins[(uint32_t)(t - trk) % NTRK], 0, sizeof(ins_t));
 +    t->ins_run = 0;
 +}
++/* the master chain (docs/FX-PLAN.md): two slots after the buses, each a copy of the INSERT (mtrk[k].p[P_ITYPE .. P_IMIX]) on the left and
++ * the right channel (two states). Saved with the settings, not the project (favorites.factory[14], mch_store / mch_load). */
++static ins_t mstate[2][2] __attribute__((section(".pool")));
++static __attribute__((noinline)) void ins_apply(ins_t *s, track_t *t, int32_t *b, uint32_t n);
 +static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint32_t n)
 +{
-+    ins_t *s = &ins[(uint32_t)(t - trk) % NTRK];
++    ins_apply(&ins[(uint32_t)(t - trk) % NTRK], t, b, n);
++}
++static __attribute__((noinline)) void ins_apply(ins_t *s, track_t *t, int32_t *b, uint32_t n)
++{
 +    int32_t ty = clamp(t->p[P_ITYPE], 0, IT_N - 1), tw;
 +    if (s->type != ty && !s->w)                         /* faded out: the new type from rest */
 +        s->type = (uint8_t)ty;
@@ -830,12 +883,27 @@ index d2bcf92..4c20666 100644
 +    t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
 +}
 +/* the face's meter (ui_faces.c): the selected track's gain reduction */
-+static inline int32_t ins_meter(const track_t *t) { return ins[(uint32_t)(t - trk) % NTRK].meter; }
++static inline int32_t ins_meter(const track_t *t)
++{
++    return t >= mtrk && t < mtrk + 2 ? mstate[t - mtrk][0].meter : ins[(uint32_t)(t - trk) % NTRK].meter;
++}
++/* the chain on the summed left and right (mix_block): nothing runs while both slots are OFF and faded */
++static __attribute__((noinline)) void mch_run(int32_t *l, int32_t *r, uint32_t n)
++{
++    uint32_t k;
++    for (k = 0; k < 2u; k++) {
++        if (!(mtrk[k].p[P_ITYPE] | mtrk[k].ins_run))
++            continue;
++        ins_apply(&mstate[k][0], &mtrk[k], l, n);
++        ins_apply(&mstate[k][1], &mtrk[k], r, n);
++    }
++}
++#define MCH_ON() ((mtrk[0].p[P_ITYPE] | mtrk[0].ins_run | mtrk[1].p[P_ITYPE] | mtrk[1].ins_run) != 0)
 +#else
  /* INSERT (1.5, Discussions #78 and #177): one effect per track, after DIST and before the SLICER, with a dry / wet
   * MIX. TYPE (P_ITYPE, N_ITYPE; stored, append-only) and its three values A B C (P_IA .. P_IC, what they mean: params.c
   * ins_desc):
-@@ -803,6 +916,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
+@@ -803,6 +938,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
          ins_drive(s, t, b, n, tw);
      t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
  }
@@ -843,7 +911,7 @@ index d2bcf92..4c20666 100644
  
  /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
   * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-@@ -896,7 +1010,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -896,7 +1032,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
  #endif
          t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                           * voice (the INSERT's: 46 ms, a flanger's feedback) */
@@ -852,7 +920,7 @@ index d2bcf92..4c20666 100644
          slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
          if (t->ins_run && !t->p[P_ITYPE])
              ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
-@@ -918,7 +1032,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -918,7 +1054,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                                                           * them, no spill in the loop: the ISR's cost as before 1.5) */
          int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
          int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
@@ -861,6 +929,23 @@ index d2bcf92..4c20666 100644
          int32_t xmax = c > d ? c : d;
          xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
          for (i = 0; i < n; i++) {
+@@ -1072,6 +1208,16 @@ static void mix_block(int32_t *out, uint32_t n)
+     fx_buses(send_c, send_d, send_r, wet, n);
+     if (hl.side)
+         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
++#if FELUCCA_DRUMONLY
++    if (MCH_ON()) {                                     /* the master chain: the whole mix, wet bus in, then the two slots */
++        for (i = 0; i < n; i++) {
++            mix_l[i] += wet[i];
++            mix_r[i] += wet[i];
++            wet[i] = 0;
++        }
++        mch_run(mix_l, mix_r, n);
++    }
++#endif
+     if (scope_mix)
+         scope_take_mix(n);
+     if (perf) {
 diff --git a/firmware/src/icons.c b/firmware/src/icons.c
 index c03e456..113a94f 100644
 --- a/firmware/src/icons.c
@@ -886,6 +971,20 @@ index c03e456..113a94f 100644
  #if FELUCCA_SLICE
      if (d->names == N_SLC_DIV)
          return ICON_SLICE;                    /* SLICE: DIV is the slicing, MODE the gate, REV the direction */
+diff --git a/firmware/src/main.c b/firmware/src/main.c
+index 69ba568..cb57011 100644
+--- a/firmware/src/main.c
++++ b/firmware/src/main.c
+@@ -110,6 +110,9 @@ static void fm1_main(void)
+         ota_boot_cleanup();                             /* staging area left by an update */
+ #endif
+     settings_init();
++#if FELUCCA_DRUMONLY
++    mch_load();                                   /* the master chain's two slots (favorites.c) */
++#endif
+     usb_serial_apply();                                 /* (#67: the saved USB SERIAL before usb_start) */
+     lcd_init();
+     draw_splash();                                      /* ui_draw.c (1.1.5) */
 diff --git a/firmware/src/midi_control.c b/firmware/src/midi_control.c
 index 2f586da..80b3050 100644
 --- a/firmware/src/midi_control.c
@@ -926,7 +1025,7 @@ index 43fbec7..fbccafd 100644
                                          * levels, SPREAD (#148: continuous, as PAN), 1.5's INSERT (TYPE too: a lock
                                          * switches it for a step, fx.c track_insert fades over), E0..E7) */
 diff --git a/firmware/src/params.c b/firmware/src/params.c
-index 4d00f50..cdcceaf 100644
+index 4d00f50..5a0f36c 100644
 --- a/firmware/src/params.c
 +++ b/firmware/src/params.c
 @@ -58,7 +58,14 @@ static const char *const N_GO[] = {"--", "GO"};
@@ -1043,7 +1142,16 @@ index 4d00f50..cdcceaf 100644
  }
  
  /* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice */
-@@ -462,10 +513,14 @@ static const page_t PAGES[] = {
+@@ -443,7 +494,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
+ /* ------------------------------------------------------------ pages --- */
+ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
+        FAM_COUNT };
+-enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
++enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK, SC_M1, SC_M2 };   /* SC_M1, SC_M2: the master chain's slots (fx.c mtrk) */   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
+ enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
+        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
+        GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
+@@ -462,10 +513,20 @@ static const page_t PAGES[] = {
      {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
      {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
      {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
@@ -1056,9 +1164,29 @@ index 4d00f50..cdcceaf 100644
      {"INSERT", FAM_FX, SC_TRACK, GR_INS, {P_ITYPE, P_IA, P_IB, P_IC}},   /* 1.5: the track's INSERT (fx.c) */
 -    {"INSERT 2", FAM_FX, SC_TRACK, GR_INS, {P_IMIX, 0xFF, 0xFF, 0xFF}},  /* .. its dry / wet */
 +    {"INSERT 2", FAM_FX, SC_TRACK, GR_INS, {P_ID, P_IE, P_IMIX, 0xFF}},  /* .. its fourth and fifth control, its dry / wet */
++#if FELUCCA_DRUMONLY
++    {"MASTER A", FAM_FX, SC_M1, GR_INS, {P_ITYPE, P_IA, P_IB, P_IC}},       /* the master chain: two slots after the buses */
++    {"MASTER A 2", FAM_FX, SC_M1, GR_INS, {P_ID, P_IE, P_IMIX, 0xFF}},
++    {"MASTER B", FAM_FX, SC_M2, GR_INS, {P_ITYPE, P_IA, P_IB, P_IC}},
++    {"MASTER B 2", FAM_FX, SC_M2, GR_INS, {P_ID, P_IE, P_IMIX, 0xFF}},
++#endif
      {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
      {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING / HALL */
      {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
+@@ -528,6 +589,13 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
+         *valp = &song.g[id];
+         return &GP[id];
+     }
++#if FELUCCA_DRUMONLY
++    if (pg->scope == SC_M1 || pg->scope == SC_M2) {   /* the master chain's slot: its own INSERT values */
++        track_t *mt = &mtrk[pg->scope == SC_M2];
++        *valp = &mt->p[id];
++        return track_desc(mt, id);
++    }
++#endif
+     if (pg->graph == GR_MOD)                          /* SRC DST AMT of the slot shown */
+         id += 3u * mod_ui_slot;
+     *valp = &TSEL->p[id];
 diff --git a/firmware/src/perform.c b/firmware/src/perform.c
 index 0f9108c..6e768aa 100644
 --- a/firmware/src/perform.c
@@ -1168,6 +1296,20 @@ index d267cd1..fef57ba 100644
      uint32_t k, i, n, hit = 0;
      for (k = 0; k < NTRK; k++) {
          proj_trk_t *d = &q->t[k];
+diff --git a/firmware/src/settings_persist.c b/firmware/src/settings_persist.c
+index 27012db..d989d57 100644
+--- a/firmware/src/settings_persist.c
++++ b/firmware/src/settings_persist.c
+@@ -78,6 +78,9 @@ static int settings_import(persist_t *p, int n)
+ #ifdef FELUCCA_FAVORITES
+     memcpy(&favorites, &p->favorites, sizeof favorites);
+     favorites.filter = favorites.filter == 1u;
++#if FELUCCA_DRUMONLY
++    mch_load();                                    /* (the master chain: favorites.factory[14], favorites.c) */
++#endif
+ #if defined(FM4_NPRESETS) && !FELUCCA_FM4
+     {   /* DIGITAL's starred presets (engine 1, retired) -> the FM6 presets that cover them (fm4_convert.c) */
+         uint32_t k;
 diff --git a/firmware/src/ui.c b/firmware/src/ui.c
 index e63d369..dfb84be 100644
 --- a/firmware/src/ui.c
@@ -1272,7 +1414,7 @@ index 762d5a9..ceae307 100644
          const track_t *t = TSEL;
          uint32_t id = P_M1SRC + 3u * mod_ui_slot;
 diff --git a/firmware/src/ui_graph.c b/firmware/src/ui_graph.c
-index 0ae1efb..8604c3e 100644
+index 0ae1efb..eed1fa6 100644
 --- a/firmware/src/ui_graph.c
 +++ b/firmware/src/ui_graph.c
 @@ -12,7 +12,9 @@
@@ -1344,7 +1486,18 @@ index 0ae1efb..8604c3e 100644
  #if FELUCCA_FM4
  /* DIGITAL's eight algorithms as FM charts, read from src/eng_digital.c's switch (alg) (ui_test.c checks
   * these tables against it). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
-@@ -1219,8 +1229,16 @@ static uint32_t graph_signature(void)
+@@ -1189,6 +1199,10 @@ static uint32_t graph_signature(void)
+     uint32_t h = 2166136261u, i;
+     if (ui.home)
+         return h ^ (ui.frame / 2u);                  /* scope: redraw every other frame */
++#if FELUCCA_DRUMONLY
++    if (cur_page()->scope == SC_M1 || cur_page()->scope == SC_M2)    /* the master chain's slot: its values are the picture */
++        t = &mtrk[cur_page()->scope == SC_M2];
++#endif
+     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
+     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
+         return h ^ 0x5A17u;
+@@ -1219,8 +1233,16 @@ static uint32_t graph_signature(void)
      }
      if (pg->graph == GR_MOD)
          h ^= (mod_ui_slot + 1u) * 40503u;
@@ -1361,7 +1514,7 @@ index 0ae1efb..8604c3e 100644
      if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
          for (i = 0; i < 4u; i++)
              h ^= (uint32_t)graph_project_used(i) << (20u + i);
-@@ -1232,6 +1250,7 @@ static uint32_t graph_signature(void)
+@@ -1232,6 +1254,7 @@ static uint32_t graph_signature(void)
  #if FELUCCA_SLICE
      if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
  #endif
@@ -1369,7 +1522,7 @@ index 0ae1efb..8604c3e 100644
      if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
                                     (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
          h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
-@@ -1239,6 +1258,7 @@ static uint32_t graph_signature(void)
+@@ -1239,6 +1262,7 @@ static uint32_t graph_signature(void)
                                                       * levels, FB; the operator pages: the operator, the stage) */
          h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + (fop_op + 1u) * 40503u + (fop_stg + 1u) * 7919u;
      if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) h ^= sample_wave.pos * 13u + sample_wave.key;
@@ -1377,7 +1530,7 @@ index 0ae1efb..8604c3e 100644
      if (pg->graph == GR_ROLL) {
          uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
          if (ph / 16u != ui.bank)
-@@ -2244,7 +2264,9 @@ static void draw_graph(void)
+@@ -2244,7 +2268,9 @@ static void draw_graph(void)
          draw_home_tracks();
          return;
      }
@@ -1387,7 +1540,7 @@ index 0ae1efb..8604c3e 100644
      sig = graph_signature();
      if (!ui.force && sig == ui.graph_sig)
          return;
-@@ -2292,12 +2314,18 @@ static void draw_graph(void)
+@@ -2292,12 +2318,18 @@ static void draw_graph(void)
          case GR_FX:
              graph_fx(t, c);
              break;
@@ -1400,13 +1553,13 @@ index 0ae1efb..8604c3e 100644
              break;
 +#else
 +        case GR_INS:
-+            graph_insert_face(t, c);
++            graph_insert_face(pg->scope == SC_M1 ? &mtrk[0] : pg->scope == SC_M2 ? &mtrk[1] : t, c);
 +            break;
 +#endif
          case GR_MOD:
              cv_oy = 0;
              graph_mod(t, c);
-@@ -2336,6 +2364,7 @@ static void draw_graph(void)
+@@ -2336,6 +2368,7 @@ static void draw_graph(void)
              graph_slices();
              break;
  #endif
@@ -1414,7 +1567,7 @@ index 0ae1efb..8604c3e 100644
          case GR_FMOP:
          case GR_FMOP2:
              if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */
-@@ -2343,10 +2372,15 @@ static void draw_graph(void)
+@@ -2343,10 +2376,15 @@ static void draw_graph(void)
          case GR_FMENV:
              if (fop_ok()) graph_fm6env(t, c);
              break;
@@ -1431,7 +1584,7 @@ index 0ae1efb..8604c3e 100644
              else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                  graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
 diff --git a/firmware/src/ui_input.c b/firmware/src/ui_input.c
-index 5d181cf..d808c26 100644
+index 5d181cf..31cb2b7 100644
 --- a/firmware/src/ui_input.c
 +++ b/firmware/src/ui_input.c
 @@ -45,7 +45,11 @@ static uint32_t cur_fam(void) { return ui.home ? FAM_HOME : cur_page()->fam; }
@@ -1459,7 +1612,20 @@ index 5d181cf..d808c26 100644
      if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
          mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
          return;
-@@ -1519,7 +1525,7 @@ static void ui_input(void)
+@@ -1073,6 +1079,12 @@ static void edit_param(uint32_t slot, int32_t steps)
+     if (vp == &TSEL->p[P_ATSNS] && !*vp && v)             /* AFTERTOUCH on (1.8): the engine's routing, if none */
+         at_turn_on(TSEL);
+     *vp = (int16_t)v;
++#if FELUCCA_DRUMONLY
++    if (pg->scope == SC_M1 || pg->scope == SC_M2) {        /* the master chain: kept with the settings (favorites.c), no motion */
++        mch_store();
++        settings_save();
++    } else
++#endif
+     if (pg->scope != SC_GLOBAL) {
+         motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
+         ml_knob(TSEL, (uint32_t)(vp - TSEL->p));        /* (MIDI LEARN: picked) */
+@@ -1519,7 +1531,7 @@ static void ui_input(void)
      midi_take();                                        /* (MIDI IN notes: lights, SCREEN WAKE, AUTO SELECT's) */
      midi_pc_poll();                                     /* MIDI Program Change (before fm6_poll: a bank voice) */
      fm6_poll();                                         /* FM6: PTCH turned -> its patch */

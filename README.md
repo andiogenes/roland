@@ -43,6 +43,7 @@ the download or "view raw" button. All mono mp3.
 | `TR606` + METAL | the same beat through the INSERT's METAL, the HM-2 model (LEVEL 70, DIST 50): note the gate cutting the tails | [insert_metal_TR606.mp3](docs/audio/insert_metal_TR606.mp3) |
 | `TR606` + HARM | the same beat through the INSERT's HARM, the Percolator model (HARMONICS 100, BALANCE 90, MODE GE) | [insert_harm_TR606.mp3](docs/audio/insert_harm_TR606.mp3) |
 | `TR606` + PRE | the same beat through the INSERT's PRE, the Surveyor-style preamp on the IVP's signal path (GAIN 50, BASS +20, TREBLE +10) | [insert_pre_TR606.mp3](docs/audio/insert_pre_TR606.mp3) |
+| `TR606` + master chain | the same beat with the master chain: slot A COMP, slot B HARM (MIX 50) on the whole mix | [insert_master_TR606.mp3](docs/audio/insert_master_TR606.mp3) |
 | `TR606` + ROT | the same beat through the INSERT's ROT (wow 60, dropouts 40, loss 70, hiss 50, drive 30): a worn tape | [insert_rot_TR606.mp3](docs/audio/insert_rot_TR606.mp3) |
 | `TR606` + tape delay | the same beat with the delay send up (80): the repeats wobble a little in pitch, darken and soften as they go round | [insert_tape_delay_TR606.mp3](docs/audio/insert_tape_delay_TR606.mp3) |
 | `ACOUS` | SLOOP's acoustic kit as recorded | [kit_13_ACOUS.mp3](docs/audio/kit_13_ACOUS.mp3) |
@@ -90,6 +91,16 @@ values (`overlay/firmware/src/ui_faces.c`; no maker's name or logo is drawn):
 INSERT has the values A to E (`P_IA .. P_IC`, and the two the drum machine added, `P_ID` and `P_IE`); a type names the ones it
 has and shows "-" for the rest. **Every INSERT type works now (steps 3 and 4: a fixed-point peak compressor in the log domain, `overlay/firmware/src/fx_comp.c`, checked by `tests/test_comp.py`: the static curve within 1.2 dB, the attack and release times, the ratios; ROT in `fx_rot.c`, checked by `tests/test_rot.py`), and COMP's meter moves; METAL, in `fx_hm2.c`, is a model fitted to a SPICE netlist of the HM-2 circuit (`tools/fxlab/spice/`), checked by `tests/test_hm2.py`: gain, the lopsided clip and its second harmonic, the gate, the three tone bands). HARM, in `fx_perc.c`, is fitted to a SPICE netlist of the Percolator (Albini values; `tests/test_perc.py`: the pot's gain and low cut, the lopsided clip, the three diode modes; the Ge diodes' knee at a few millivolts is not modelled). PRE, in `fx_ivp.c`, follows the IVP's own signal path (`tools/fxlab/spice/ivp.py`: the Baxandall stage and the TUBE DRIVE stage with its transistor pair; the parametric bands stay flat and the transformer is not modelled; `tests/test_ivp.py`).** Projects and presets that were
 saved before load with D 64 and E 0 (the format maps by count, no version change).
+
+### The master chain
+
+<p align="center"><img src="docs/host-render/screens_master.png" alt="MASTER A and MASTER B pages" width="480"></p>
+
+Two slots after the buses, on the whole stereo mix (the delay and reverb returns included), before MASTER and the limiter. Each slot is
+a copy of the INSERT: the same TYPE (OFF, COMP, PRE, HARM, METAL, ROT), the same five values and MIX, the same device faces, on the
+pages **MASTER A**, **MASTER A 2**, **MASTER B** and **MASTER B 2** next to INSERT (FX button). Each slot runs on both channels with a
+state apiece. Both slots OFF: the master path is as before, bit for bit. The chain belongs to the device, not to a project: it is kept
+with the settings (`favorites.factory[14]`, the bytes no engine of this build uses), so a project load does not change it.
 
 ## Status: read this first
 
