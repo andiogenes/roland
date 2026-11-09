@@ -38,5 +38,15 @@ class IVP(unittest.TestCase):
         self.assertGreater(g.ivp_band_hz("low", 0.0), g.ivp_band_hz("low_mid", 1.0))   # the bands overlap
 
 
+class Percolator(unittest.TestCase):
+    def test_albini_is_the_stock_with_five_parts_changed(self):
+        diff = {k for k in g.PERC_ALBINI if g.PERC_ALBINI[k] != g.PERC_STOCK[k]}
+        self.assertEqual(diff, {"r1", "r2", "r3", "c4", "c5"})
+
+    def test_albini_input_is_less_bass_heavy(self):
+        # the output coupling C4 into the stage after it: a larger C4 passes lower notes
+        self.assertGreater(g.PERC_ALBINI["c4"], g.PERC_STOCK["c4"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

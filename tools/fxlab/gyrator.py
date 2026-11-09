@@ -54,3 +54,13 @@ def ivp_band_hz(name, pot=0.0):
     """the band's centre with the FREQ pot at `pot` (0 = the top of the range .. 1 = the bottom, linear in resistance)"""
     b = IVP_BANDS[name]
     return resonance(gyrator_L(b["cg"], b["ra"], IVP_RB_FIXED + pot * IVP_FREQ_POT), b["cs"])
+
+
+# -------------------------------------------------------------------------------- Interfax Harmonic Percolator (AionFX Particle doc v1.1.1)
+# two-transistor fuzz: Q1 PNP germanium (2N404A) into Q2 NPN silicon (2N3565 / 2N3904), Harmonics 100kA, Balance 50kA, Mode = clipping diodes.
+PERC_ALBINI = dict(r1=51e3, r2=91e3, r3=3.9e6, r4=91e3, r5=4.7e3, c1=100e-12, c2=47e-9, c3=47e-6, c4=2.2e-6, c5=1.5e-9, c6=100e-9)
+PERC_STOCK = dict(PERC_ALBINI, r1=220e3, r2=20e3, r3=750e3, c4=1e-6, c5=1e-9)
+
+
+def perc_corner_hz(r, c):
+    return 1.0 / (2 * math.pi * r * c)

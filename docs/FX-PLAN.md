@@ -22,7 +22,7 @@ FREEZE, OCT UP / DN, REV / ECHO THROW, the filters) stay.
 | Step | | Status |
 |---|---|---|
 | 1 | Remove DIST, the SLICER, the chorus, the old INSERT types, FLANGER and PHASER | **Done.** Audio of every kit bit-identical; whole firmware type-checks; UI lint clean. |
-| 2 | Float reference models (Python / SPICE) and test signals | **Started.** The HM-2 and IVP documents are read. `tools/fxlab/gyrator.py` holds their component values, and `tests/test_fxlab.py` checks them against what the documents state in words (all match). ngspice is installed for the nonlinear stages. Next: SPICE netlists of both circuits, and the Percolator (needs its schematic: see below). |
+| 2 | Float reference models (Python / SPICE) and test signals | **Started.** The HM-2 and IVP documents are read. `tools/fxlab/gyrator.py` holds their component values, and `tests/test_fxlab.py` checks them against what the documents state in words (all match). ngspice is installed for the nonlinear stages. Next: SPICE netlists of both circuits, and the Percolator (schematic supplied; values recorded). |
 | 3 | Compressor, tape delay, tape rot | Not started |
 | 4 | HM-2, Percolator, IVP | Not started |
 | 5 | Dragonfly Room (fixed point, 22.05 kHz) | Not started |
@@ -41,6 +41,5 @@ type-check and the UI lint. None of it says anything about the FM-1's own speed 
 
 **Still needed**
 
-* **The Percolator's schematic.** The [Madbean Pepper Spray PDF](https://madbeanpedals.com/projects/_folders/StandardSeries/pdf/PepperSpray.pdf)
-  (the Albini-style variant) is on a host this session cannot reach. Please upload it (and, if you have it, the Amplified Parts
-  stock-version guide for comparison); without a schematic I would only be able to model its behaviour, not its circuit.
+* Nothing is missing now: the Percolator's schematic (AionFX Particle documentation v1.1.1) is supplied and its Albini and stock
+  values are recorded in `tools/fxlab/gyrator.py`.
