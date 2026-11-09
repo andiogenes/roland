@@ -126,7 +126,7 @@ static void fc_slider(int32_t x, int32_t y0, int32_t h, int32_t pos, uint16_t un
     cv_rect(x - 5, y, 10, 1, FC_CHROME);
 }
 
-/* a 1176's gain-reduction meter: the cream face, the scale's ticks, the needle at `gr` 0 .. 127 (0: at rest, on the right) */
+/* a 1176's gain-reduction meter: the cream face, the scale's ticks, the needle at `gr` 0 .. 127 (0: at rest, on the right; fx.c ins_meter) */
 static void fc_meter(int32_t x, int32_t y, int32_t w, int32_t h, int32_t gr)
 {
     int32_t px = x + w / 2, py = y + h - 4, r = h - 10, i, deg;
@@ -156,7 +156,7 @@ static void face_comp(const track_t *t, const page_t *pg)
         fc_label(cx - 16, cy - 25, 32, 11, K[i], FC_INK, FC_SILVER);
         fc_knob(cx, cy, 10, t->p[ID[i]], FC_KNOB, 0, FC_CHROME, FC_SILVER, fc_on(pg, ID[i]));
     }
-    fc_meter(FC_X + 92, FC_Y + 10, 72, 52, 0);
+    fc_meter(FC_X + 92, FC_Y + 10, 72, 52, ins_meter(t));
     if (fc_on(pg, P_IE))
         cv_rrect(FC_X + 169, FC_Y + 2, 36, FC_H - 4, 4, T_ACCENT, FC_SILVER);
     for (i = 0; i < 5; i++) {                             /* the ratio buttons, one in */

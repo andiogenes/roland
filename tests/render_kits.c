@@ -16,6 +16,8 @@ static const uint8_t BEAT[32][4] = {
     {36, 42, 0}, {0}, {36, 42, 0}, {37, 0}, {38, 39, 0}, {43, 0}, {46, 0}, {48, 0},
 };
 
+static int16_t ins_cfg[6];                          /* INSERT: TYPE, A .. E (TYPE 0: none) */
+
 static const char *kit_name(uint32_t k)
 {
     const param_desc_t *d = &ENG_DRUM.edit[0];
@@ -38,6 +40,10 @@ static int32_t play_kit(uint32_t kit, FILE *f, double *rms, uint32_t *clips)
     dc_l = dc_r = dce_l = dce_r = 0;
     host_drums(&trk[3]);
     trk[3].p[P_E0] = (int16_t)kit;
+    if (ins_cfg[0]) {
+        trk[3].p[P_ITYPE] = ins_cfg[0]; trk[3].p[P_IA] = ins_cfg[1]; trk[3].p[P_IB] = ins_cfg[2];
+        trk[3].p[P_IC] = ins_cfg[3]; trk[3].p[P_ID] = ins_cfg[4]; trk[3].p[P_IE] = ins_cfg[5];
+    }
     for (i = 0; i < 3; i++)                           /* the other parts silent */
         trk[i].p[P_LEVEL] = 0;
     song.master_q12 = 4096;
@@ -105,6 +111,23 @@ int main(int argc, char **argv)
             play_kit(k, all, &r2, &c2);
         }
         shown++;
+    }
+    {   /* the INSERT's COMP on the TR606 kit: INPUT 100, OUT 80, fast attack, medium release, 12:1 */
+        static const int16_t C[6] = {IT_COMP, 100, 80, 20, 50, 2};
+        double rms;
+        uint32_t clips;
+        int32_t peak;
+        FILE *f;
+        memcpy(ins_cfg, C, sizeof ins_cfg);
+        if (argc > 2)                                     /* render_kits OUTDIR a,b,c,d,e: other knob values */
+            sscanf(argv[2], "%hd,%hd,%hd,%hd,%hd", &ins_cfg[1], &ins_cfg[2], &ins_cfg[3], &ins_cfg[4], &ins_cfg[5]);
+        snprintf(path, sizeof path, "%s/insert_comp_TR606.wav", dir);
+        f = fopen(path, "wb");
+        wav_hdr(f, FS * 5u);
+        peak = play_kit(DK_606, f, &rms, &clips);
+        fclose(f);
+        printf("COMP on TR606: peak %5d rms %6.0f clipped %u\n", (int)peak, rms, (unsigned)clips);
+        memset(ins_cfg, 0, sizeof ins_cfg);
     }
     {   /* patch the combined file's sizes */
         uint32_t frames = shown * FS * 5u, v;

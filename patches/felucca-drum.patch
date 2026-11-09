@@ -649,7 +649,7 @@ index 579413a..3646e7e 100644
  
  /* ------------------------------------------------- MIDI, sequencer --- */
 diff --git a/firmware/src/fx.c b/firmware/src/fx.c
-index d2bcf92..09fda7b 100644
+index d2bcf92..e65d615 100644
 --- a/firmware/src/fx.c
 +++ b/firmware/src/fx.c
 @@ -5,7 +5,9 @@
@@ -709,23 +709,66 @@ index d2bcf92..09fda7b 100644
          /* delay with a low-passed feedback */
          x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
          fx.dly_lp += mulq15(x - fx.dly_lp, col);
-@@ -613,6 +626,15 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
+@@ -613,6 +626,58 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
      }
  }
  
 +#if FELUCCA_DRUMONLY
-+/* INSERT: one effect per track, after the voices and before the level, pan and sends. The old types (the drives, CRUSH, the
-+ * phaser, flanger and chorus) are gone; the new pool of effects comes here. TYPE: OFF, COMP, PRE, HARM, METAL. */
-+/* the faces (ui_faces.c) are the types' pictures; the signal processing of each follows (docs/FX-PLAN.md steps 3 and 4): until it
-+ * does, a selected type passes the sound unchanged. */
++/* INSERT: one effect per track, after the voices and before the level, pan and sends, with a dry / wet MIX (parallel
++ * compression on COMP). The old types (the drives, CRUSH, the phaser, flanger and chorus) are gone; the pool of devices
++ * (docs/FX-PLAN.md) comes here: COMP runs (fx_comp.c); PRE, HARM and METAL pass the sound until their steps. MIX glides
++ * (2.9 ms), a TYPE change fades the old one out, clears the state and fades the new one in, as before. State in the pool,
++ * per track. */
 +enum { IT_OFF, IT_COMP, IT_PRE, IT_HARM, IT_METAL, IT_N };
-+static inline void ins_rest(track_t *t) { t->ins_run = 0; }
-+static inline void track_insert(track_t *t, int32_t *b, uint32_t n) { (void)b; (void)n; t->ins_run = 0; }
++#include "fx_comp.c"
++typedef struct {
++    int32_t w;                          /* the wet share now, Q15 */
++    uint8_t type;                       /* the type running */
++    uint8_t meter;                      /* COMP: the gain reduction, 0 .. 127 over 0 .. 20 dB (the face's meter) */
++    comp_t comp;
++} ins_t;
++static ins_t ins[NTRK] __attribute__((section(".pool")));
++static inline int32_t ins_mixq(int32_t m) { return m >= 127 ? 32768 : m <= 0 ? 0 : m * 258; }   /* MIX -> Q15 */
++static __attribute__((noinline)) void ins_rest(track_t *t)
++{
++    memset(&ins[(uint32_t)(t - trk) % NTRK], 0, sizeof(ins_t));
++    t->ins_run = 0;
++}
++static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint32_t n)
++{
++    ins_t *s = &ins[(uint32_t)(t - trk) % NTRK];
++    int32_t ty = clamp(t->p[P_ITYPE], 0, IT_N - 1), tw;
++    if (s->type != ty && !s->w)                         /* faded out: the new type from rest */
++        s->type = (uint8_t)ty;
++    tw = s->type == ty && ty == IT_COMP ? ins_mixq(t->p[P_IMIX]) : 0;
++    if (!s->w) {
++        if (!tw) {
++            t->ins_run = 0;
++            return;                                     /* dry: bit for bit */
++        }
++        memset(s, 0, sizeof *s);                        /* starting: no stale envelope */
++        s->type = (uint8_t)ty;
++    }
++    {
++        comp_k_t k;
++        uint32_t i;
++        comp_coefs(&k, t->p[P_IA], t->p[P_IB], t->p[P_IC], t->p[P_ID], t->p[P_IE]);
++        for (i = 0; i < n; i++) {
++            int32_t x = b[i];
++            s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
++            b[i] = pf_mix(x, comp_one(&s->comp, &k, x), s->w);
++        }
++        s->meter = (uint8_t)clamp(s->comp.gr / 1713, 0, 127);
++    }
++    t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
++}
++/* the face's meter (ui_faces.c): the selected track's gain reduction */
++static inline int32_t ins_meter(const track_t *t) { return ins[(uint32_t)(t - trk) % NTRK].meter; }
 +#else
  /* INSERT (1.5, Discussions #78 and #177): one effect per track, after DIST and before the SLICER, with a dry / wet
   * MIX. TYPE (P_ITYPE, N_ITYPE; stored, append-only) and its three values A B C (P_IA .. P_IC, what they mean: params.c
   * ins_desc):
-@@ -803,6 +825,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
+@@ -803,6 +868,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
          ins_drive(s, t, b, n, tw);
      t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
  }
@@ -733,7 +776,7 @@ index d2bcf92..09fda7b 100644
  
  /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
   * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-@@ -896,7 +919,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -896,7 +962,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
  #endif
          t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                           * voice (the INSERT's: 46 ms, a flanger's feedback) */
@@ -742,7 +785,7 @@ index d2bcf92..09fda7b 100644
          slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
          if (t->ins_run && !t->p[P_ITYPE])
              ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
-@@ -918,7 +941,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -918,7 +984,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                                                           * them, no spill in the loop: the ISR's cost as before 1.5) */
          int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
          int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
@@ -1160,7 +1203,7 @@ index 762d5a9..ceae307 100644
          const track_t *t = TSEL;
          uint32_t id = P_M1SRC + 3u * mod_ui_slot;
 diff --git a/firmware/src/ui_graph.c b/firmware/src/ui_graph.c
-index 0ae1efb..c156089 100644
+index 0ae1efb..915d7e8 100644
 --- a/firmware/src/ui_graph.c
 +++ b/firmware/src/ui_graph.c
 @@ -12,7 +12,9 @@
@@ -1232,10 +1275,14 @@ index 0ae1efb..c156089 100644
  #if FELUCCA_FM4
  /* DIGITAL's eight algorithms as FM charts, read from src/eng_digital.c's switch (alg) (ui_test.c checks
   * these tables against it). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
-@@ -1219,8 +1229,10 @@ static uint32_t graph_signature(void)
+@@ -1219,8 +1229,14 @@ static uint32_t graph_signature(void)
      }
      if (pg->graph == GR_MOD)
          h ^= (mod_ui_slot + 1u) * 40503u;
++#if FELUCCA_DRUMONLY
++    if (pg->graph == GR_INS && t->p[P_ITYPE] == IT_COMP)   /* COMP's meter moves (fx.c ins_meter, 8 steps of it a frame) */
++        h = (h ^ ((uint32_t)ins_meter(t) >> 4)) * 16777619u;
++#endif
 +#if !FELUCCA_DRUMONLY
      if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
          h ^= (sl[song.sel].idx + 1u) * 2654435761u;
@@ -1243,7 +1290,7 @@ index 0ae1efb..c156089 100644
      if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
          for (i = 0; i < 4u; i++)
              h ^= (uint32_t)graph_project_used(i) << (20u + i);
-@@ -1232,6 +1244,7 @@ static uint32_t graph_signature(void)
+@@ -1232,6 +1248,7 @@ static uint32_t graph_signature(void)
  #if FELUCCA_SLICE
      if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
  #endif
@@ -1251,7 +1298,7 @@ index 0ae1efb..c156089 100644
      if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
                                     (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
          h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
-@@ -1239,6 +1252,7 @@ static uint32_t graph_signature(void)
+@@ -1239,6 +1256,7 @@ static uint32_t graph_signature(void)
                                                       * levels, FB; the operator pages: the operator, the stage) */
          h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + (fop_op + 1u) * 40503u + (fop_stg + 1u) * 7919u;
      if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) h ^= sample_wave.pos * 13u + sample_wave.key;
@@ -1259,7 +1306,7 @@ index 0ae1efb..c156089 100644
      if (pg->graph == GR_ROLL) {
          uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
          if (ph / 16u != ui.bank)
-@@ -2244,7 +2258,9 @@ static void draw_graph(void)
+@@ -2244,7 +2262,9 @@ static void draw_graph(void)
          draw_home_tracks();
          return;
      }
@@ -1269,7 +1316,7 @@ index 0ae1efb..c156089 100644
      sig = graph_signature();
      if (!ui.force && sig == ui.graph_sig)
          return;
-@@ -2292,12 +2308,18 @@ static void draw_graph(void)
+@@ -2292,12 +2312,18 @@ static void draw_graph(void)
          case GR_FX:
              graph_fx(t, c);
              break;
@@ -1288,7 +1335,7 @@ index 0ae1efb..c156089 100644
          case GR_MOD:
              cv_oy = 0;
              graph_mod(t, c);
-@@ -2336,6 +2358,7 @@ static void draw_graph(void)
+@@ -2336,6 +2362,7 @@ static void draw_graph(void)
              graph_slices();
              break;
  #endif
@@ -1296,7 +1343,7 @@ index 0ae1efb..c156089 100644
          case GR_FMOP:
          case GR_FMOP2:
              if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */
-@@ -2343,10 +2366,15 @@ static void draw_graph(void)
+@@ -2343,10 +2370,15 @@ static void draw_graph(void)
          case GR_FMENV:
              if (fop_ok()) graph_fm6env(t, c);
              break;

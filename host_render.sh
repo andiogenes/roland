@@ -87,6 +87,9 @@ if command -v ffmpeg >/dev/null; then
     for w in "$OUT"/kits/kit_*.wav; do
         ffmpeg -loglevel error -y -i "$w" -ac 1 -t 4.3 -b:a 96k "$OUT/mp3/$(basename "$w" .wav).mp3"
     done
+    for w in "$OUT"/kits/insert_*.wav; do
+        [ -f "$w" ] && ffmpeg -loglevel error -y -i "$w" -ac 1 -t 4.3 -b:a 96k "$OUT/mp3/$(basename "$w" .wav).mp3"
+    done
 fi
 # PUBLISH=1: the pictures, and the clips of every kit except the HR-16 and Drumulator ones (those packs' licences are not known), into docs/
 if [ "${PUBLISH:-0}" = 1 ]; then
@@ -98,5 +101,6 @@ if [ "${PUBLISH:-0}" = 1 ]; then
     for m in "$OUT"/mp3/kit_*.mp3; do
         case "$m" in *HR-*|*DRMU*) ;; *) cp "$m" "$ROOT/docs/audio/";; esac
     done
+    cp "$OUT"/mp3/insert_*.mp3 "$ROOT/docs/audio/" 2>/dev/null || true
 fi
 echo "host_render: done -> $OUT"
