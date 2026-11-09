@@ -183,9 +183,16 @@ typedef struct {
 } room_t;
 static room_t R;
 
+#ifdef DFR_NONOISE
+static float noise_step(room_t *r) { (void)r; return 0; }
+#else
 static float noise_step(room_t *r) { r->rng = r->rng * 1664525u + 1013904223u; r->noise += 0.02f * ((float)(r->rng >> 8) / 8388608.0f - 1.0f - r->noise * 0.5f); return r->noise * 3.0f; }
+#endif
 static float dccut(float *s, float gain, float x) { float o = x - s[0]; s[0] = x; o += gain * s[1]; s[1] = o; return o; }
 static float dcgain;
+#ifdef DFR_DBG
+float dfr_dbg[8];
+#endif
 
 /* the Medium Clear Room: size 12 m, width 100, predelay 8 ms, decay 0.4 s, diffuse 70, spin 0.8, wander 40, early damp 10000, late damp 9400, boost 50 at 600 Hz */
 static void room_init(room_t *r, double fs, double size, double predelay, double decay, double diffuse, double spin, double wander, double edamp, double ldamp, double boost, double boostlpf)
@@ -271,13 +278,22 @@ static void late_step(room_t *r, float inL, float inR, float *oL, float *oR)
         outR = apm_proc_dc(&r->iaR[i], outR, lfo, mnoise * sg);
         sg = -sg;
     }
+#ifdef DFR_DBG
+    dfr_dbg[1] = outL;
+#endif
     crossL = outL; crossR = outR;
     for (i = 0; i < 4; i++) { crossL = ap_proc(&r->caL[i], crossL); crossR = ap_proc(&r->caR[i], crossR); }
     outL = iir1(&r->lpfLin, outL + r->crossfeed * crossR);
     outR = iir1(&r->lpfRin, outR + r->crossfeed * crossL);
+#ifdef DFR_DBG
+    dfr_dbg[2] = outL;
+#endif
     crossR = dly_last(&r->d58); crossL = dly_last(&r->d37);
     outL += r->loopdecay * (crossR + r->bassb * bq(&r->lp9, bq(&r->bassAPL, crossR)));
     outR += r->loopdecay * (crossL + r->bassb * bq(&r->lp7, bq(&r->bassAPR, crossL)));
+#ifdef DFR_DBG
+    dfr_dbg[3] = outL;
+#endif
     outL = apm_proc_dc(&r->m17, dly_proc(&r->d16, apm_proc_dc(&r->m15, iir1(&r->lpfLd, outL), lfo, mnoise)), -lfo, -mnoise);
     outR = apm_proc_dc(&r->m21, dly_proc(&r->dts, apm_proc_dc(&r->m19, iir1(&r->lpfRd, outR), -lfo, -mnoise)), lfo, mnoise);
     dly_proc(&r->d37, ap3_proc(&r->a3L34, dly_proc(&r->d31, ap2_proc(&r->a2L25, dly_proc(&r->d23, outL))), lfo));
@@ -292,6 +308,9 @@ static void late_step(room_t *r, float inL, float inR, float *oL, float *oR)
         + (dly_z(&r->d58, r->iOut[4]) + ap2_z1(&r->a2R43, r->iOut2[5]) + ap2_z2(&r->a2R43, r->iOut2[7]) - ap2_z2(&r->a2L25, r->iOut2[9])
            + ap3_z1(&r->a3R52, r->iOut2[11]) + ap3_z2(&r->a3R52, r->iOut2[13]) + ap3_z3(&r->a3R52, r->iOut2[15]) - ap3_z2(&r->a3L34, r->iOut2[19])) * 0.064f
         + dly_z(&r->d58, r->iOut2[17]) * 0.045f;
+#ifdef DFR_DBG
+    dfr_dbg[4] = Dout;
+#endif
     l2 = iir1(&r->lfo2l, lfo_proc(&r->lfo2) * r->wander2);
     {   /* the output combs: a feed-forward comb whose gain is the LFO */
         float oa = r->outL.b[r->outL.i] * l2 + Dout, ob = r->outR.b[r->outR.i] * -l2 + Bout;
@@ -337,6 +356,9 @@ int main(int argc, char **argv)
         float x = i == 0 ? 1.0f : 0.0f, eL, eR, lL, lR, o[4];
         early_step(&R, x, x, &eL, &eR);
         late_step(&R, 0.2f * eL + x, 0.2f * eR + x, &lL, &lR);
+#ifdef DFR_DBG
+        if (i < 3000 && getenv("DFR_DBGOUT")) fprintf(stderr, "%ld %g %g %g %g\n", i, dfr_dbg[1], dfr_dbg[2], dfr_dbg[3], dfr_dbg[4]);
+#endif
         o[0] = eL; o[1] = eR; o[2] = lL; o[3] = lR;
         fwrite(o, 4, 4, f);
     }
