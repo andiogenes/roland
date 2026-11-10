@@ -60,7 +60,7 @@ static int32_t hm2_one(hm2_t *s, const hm2_k_t *k, int32_t x)
     v -= hm2_lp(&s->hp2, HM2_G_HP2, v);
     v = hm2_lp(&s->lp1, HM2_G_LP1, v);                                   /* the stages' lowpasses */
     v = hm2_lp(&s->lp2, HM2_G_LP2, v);
-    v = clamp(v, -4000000, 4000000);
+    v = clamp(v, -2097152, 2097151);                           /* (not +-4000000: the build refuses an immediate in the chip ROM range 0xFFC00000 .. 0xFFCFFFFF, and -4000000 is 0xFFC2F700) */
     u = v - s->off;                                                      /* Q3: the lopsided clip, its mean held */
     o = hm2_clip(HM2_CLIP1P, HM2_CLIP1N, u);
     s->off += (o * HM2_SERVO + 32768) >> 16;                             /* (rounded: it must not drift) */

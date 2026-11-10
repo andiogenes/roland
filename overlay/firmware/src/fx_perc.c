@@ -46,7 +46,7 @@ static int32_t perc_one(perc_t *s, const perc_k_t *k, int32_t x)
     int32_t v = clamp(x, -262144, 262143), u, o;
     v = ((v >> 2) * (k->gain >> 2)) >> 11;                                    /* Q12 volts after the gain (the input's bits kept) */
     v -= pc_lp(&s->hp, k->hpg, v);
-    v = clamp(v, -4000000, 4000000);
+    v = clamp(v, -2097152, 2097151);                           /* (not +-4000000: the build refuses an immediate in the chip ROM range 0xFFC00000 .. 0xFFCFFFFF, and -4000000 is 0xFFC2F700) */
     u = v - s->off;                                                           /* the transistors' lopsided clip, its mean followed */
     o = u >= 0 ? pc_tab(PC_C1P, u, 8) : -pc_tab(PC_C1N, -u, 8);
     s->off += (o * PC_SERVO + 32768) >> 16;
