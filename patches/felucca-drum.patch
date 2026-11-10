@@ -164,7 +164,7 @@ index 3c68a2e..fd889d4 100644
          ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
          ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
 diff --git a/firmware/src/eng_drum.c b/firmware/src/eng_drum.c
-index eefafea..58f934f 100644
+index eefafea..7e83ca1 100644
 --- a/firmware/src/eng_drum.c
 +++ b/firmware/src/eng_drum.c
 @@ -32,17 +32,54 @@
@@ -532,6 +532,15 @@ index eefafea..58f934f 100644
  };
  
  static const engine_t ENG_DRUM = {
+@@ -345,6 +588,8 @@ static const engine_t ENG_DRUM = {
+     .knob = {P_E1, P_E2, P_E3, P_E4},
+     .poly = DV_NLANE,
+     .oneshot = 1,
++    .sampled = 1,                /* a hit struck again while it sounds starts over: its sample position is in the voice's phases (hr_*), which voice.c
++                                  * would otherwise keep over a retrigger (the sample went on from where it was and only played again once it had ended) */
+     .keys = drum_keys,
+     .mem = sizeof(drum_lane_t) * DV_NLANE,
+ };
 diff --git a/firmware/src/engines.c b/firmware/src/engines.c
 index af4e4c6..c51e0f0 100644
 --- a/firmware/src/engines.c

@@ -77,6 +77,8 @@ echo "host_render: built (the patched firmware sources compile on the host)"
 PATH="$ROOT/build/venv/bin:$PATH" sh "$ROOT/tests/host_size.sh" "$(echo "$FLAGS" | sed 's/-DFELUCCA_DRUMONLY=1//')" | tee "$OUT/size.txt"
 
 build/host/render_kits "$OUT/kits" | tee "$OUT/kits/levels.txt"
+# a hit struck again while it sounds must start over (a sample kit once went on from where it was)
+awk '/^retrigger/ { if ($NF + 0 < 0.7) { print "host_render: FAIL, a retriggered hit did not start over (" $NF ")"; bad = 1 } } END { exit bad }' "$OUT/kits/levels.txt"
 build/host/render_screens "$OUT/screens"
 mkdir -p build/ui_new/ppm build/ui_slot
 build/host/ui_render build/ui_new build/ui_slot 2>&1 | tail -4 | tee "$OUT/ui_lint.txt"

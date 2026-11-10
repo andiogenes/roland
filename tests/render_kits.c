@@ -238,6 +238,42 @@ int main(int argc, char **argv)
         fclose(f);
         rev_cfg = 0;
     }
+    {   /* a hit struck again while it still sounds must start over (a sample kit used to go on from where it was: the voice's phases were
+         * kept over the retrigger, voice.c): the kick of the ACOUS kit twice, 100 ms apart; the first 20 ms of each hit */
+        uint32_t k2;
+        double e1 = 0, e2 = 0;
+        int16_t v;
+        host_tracks_init();
+        memset(dly_buf, 0, sizeof dly_buf);
+        rev_clear();
+        host_drums(&trk[3]);
+        trk[3].p[P_E0] = (int16_t)(DK_HR + 0);
+        for (k2 = 0; k2 < 3; k2++)
+            trk[k2].p[P_LEVEL] = 0;
+        song.master_q12 = 4096;
+        for (v = 0; v < 2; v++) {
+            uint32_t fr, base = (uint32_t)v * (FS / 10u);
+            (void)base;
+        }
+        for (k2 = 0; k2 < FS / 2u; k2 += CTL) {
+            int32_t o[2 * CTL];
+            uint32_t i;
+            if (k2 == 0)
+                trk_note_on(&trk[3], 36, 100);
+            if (k2 == (FS / 10u) / CTL * CTL)
+                trk_note_on(&trk[3], 36, 100);
+            mix_block(o, CTL);
+            for (i = 0; i < 2 * CTL; i += 2) {
+                uint32_t fr = k2 + i / 2u;
+                double x = o[i];
+                if (fr < FS / 50u)
+                    e1 += x * x;
+                else if (fr >= (FS / 10u) / CTL * CTL && fr < (FS / 10u) / CTL * CTL + FS / 50u)
+                    e2 += x * x;
+            }
+        }
+        printf("retrigger: the second hit's first 20 ms against the first's: %.2f\n", e1 > 0 ? sqrt(e2 / e1) : 0.0);
+    }
     {   /* the delay as a tape echo: send 80, the delay's own defaults (FDBK 60 %, COLR 70, MIX 90) */
         double rms;
         uint32_t clips;
