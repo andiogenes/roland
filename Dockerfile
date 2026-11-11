@@ -15,18 +15,17 @@
 #       sudo docker run --rm --platform linux/amd64 -v "$PWD:/src" roland-fm1                            # out/roland-drum.fwsc
 #   HR-16B / Drumulator kits: put the WAVs in assets/hr16 and assets/drumulator (they are git-ignored); the mount carries them in.
 #   the host-side tests (no toolchain needed): sudo docker run --rm --platform linux/amd64 --entrypoint ./host_render.sh -v "$PWD:/src" roland-fm1
-FROM --platform=linux/amd64 debian:bookworm-slim
+FROM --platform=linux/amd64 python:3.13-slim-bookworm
 
 ARG SDK_TAG=AC79NN_SDK_V1.2.1_2023-12-13
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils python3 python3-venv python3-pip gcc libc6-dev patch ffmpeg \
+ && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils gcc libc6-dev patch ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
-# the Python packages the UI font and icons are rasterised with at build time (and the host render's pictures)
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir Pillow fonttools numpy
-ENV PATH=/opt/venv/bin:$PATH
+# (Python 3.13 from the base image) the Python packages the UI font and icons are rasterised with at build time (and the host render's pictures)
+RUN pip install --no-cache-dir Pillow fonttools numpy
 
 # JieLi's toolchain (clang for pi32v2) and the SDK (the build uses three files of it)
 RUN mkdir -p /opt/jieli-dl && cd /opt/jieli-dl \

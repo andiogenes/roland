@@ -415,7 +415,8 @@ def header(kits, samples, kit_idx):
     L.append("static const uint8_t HR16_TREAT[HR16_NKITS] = {" + ", ".join(str(k["treat"]) for k in kits) + "};")
     L.append("#define HR16_FOR_EACH_KIT(X) \\")      # X(index, KIT name (5 characters), preset name (8))
     for i, k in enumerate(kits):
-        L.append(f'    X({i}, "{k["name"]}", "{k["preset"]}"){" \\" if i + 1 < len(kits) else ""}')
+        cont = " \\" if i + 1 < len(kits) else ""         # (no backslash inside an f-string expression: Python before 3.12)
+        L.append(f'    X({i}, "{k["name"]}", "{k["preset"]}"){cont}')
     L.append("")
     L.append(f"static const uint8_t HR16_DATA[{max(1, len(blob))}] = {{")
     for i in range(0, len(blob), 24):
