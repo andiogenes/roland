@@ -246,7 +246,12 @@ Tests (`python3 -I tests/test_X.py`, each; need `cc` and numpy for some): `test_
   Freeverb3's own impulse response (`tests/dfroom_ref.sh`, needs a clone of dragonfly-reverb; `tests/test_dfroom_float.py`, `tests/test_dfly.py`):
   decay curve, energy, spectrum and early reflections agree within about a decibel or two; the modulation noise is a stand-in, so the match
   is statistical. The send's level is set so that the TR606 beat with the send at 64 has the old room's wet level (within 0.7 dB).
-  **Memory**: the room's buffers are 88 KB of the FM-1's 360 KB pool; to make it fit the engines' state region (it was sized for the engines
+  **CPU (LITE)**: the room and the delay were about 70 % of an audio block on the host, and a kick and a hat starting together with both on lost
+  a hit on the FM-1 (an overrun, as I read it). The room now keeps 6 of Dragonfly's 10 input all-passes and 2 of the 4 cross-fed ones
+  (`DFR_FULL` builds the whole): **35 % less time in the room on the host** (6.25 to 4.04 us a block), a slightly less dense onset, the same
+  decay (energy within 0.5 dB of the float transcription, the 0.4 s point of the decay curve 3.4 dB). It also rests when nothing is sent and the
+  tail has run out. Not measured on the FM-1: whether this is enough is for the device to say.
+    **Memory**: the room's buffers are 88 KB of the FM-1's 360 KB pool; to make it fit the engines' state region (it was sized for the engines
   that are gone) and the three old reverbs' buffers were removed: the host build's pool is 360 320 bytes of 368 640 (8 KB spare, the build
   script's minimum), which has not been checked on the device.
 * `FELUCCA_HR16=1`: KIT values `HR-A`.. appended after PERC. A hit plays one IMA ADPCM sample per lane, resampled by

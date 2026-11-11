@@ -743,7 +743,7 @@ index 2fecadc..7573445 100644
 +            p[i] = (i - P_FM1_ATK) % 5u == 2u || (i - P_FM1_ATK) % 5u == 4u ? 127 : 0;
  }
 diff --git a/firmware/src/fx.c b/firmware/src/fx.c
-index d2bcf92..eed2988 100644
+index d2bcf92..7729abb 100644
 --- a/firmware/src/fx.c
 +++ b/firmware/src/fx.c
 @@ -5,16 +5,22 @@
@@ -818,7 +818,7 @@ index d2bcf92..eed2988 100644
  /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
  static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
  {
-@@ -489,14 +506,57 @@ static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *o
+@@ -489,14 +506,80 @@ static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *o
      hl.side = 1;
  }
  
@@ -831,6 +831,8 @@ index d2bcf92..eed2988 100644
 + * G_RSIZE (8 .. 20 m), DECAY G_RTYPE (a value under 8 is a project saved with the old TYPE: the default), DAMP G_RDAMP. */
 +#define DFR_GL 139                                      /* the late return, Q4: 0.2 x 8 x 5.4: the old room's level against the dry mix (the TR606 beat, send 64, master -12 dB: wet rms 483) */
 +#define DFR_GE 69                                       /* the early return: 0.1 x 8 x 5.4 */
++static int32_t dfr_peak;                                /* the last block's loudest mid / side (rev_dfly's rest) */
++static uint32_t dfr_quiet;                              /* blocks in a row it was under 2 */
 +static __attribute__((noinline)) void rev_dfly(const int32_t *rev_in, int32_t *out, uint32_t n)
 +{
 +    uint32_t i, nc = n / 2u;
@@ -842,6 +844,22 @@ index d2bcf92..eed2988 100644
 +            dfr_tune(decay);
 +        if (dfr.dp != damp)
 +            dfr_damp(damp);
++    }
++    {   /* nothing sent and the tail run out (40 blocks of under 2 in both mid and side): the room rests (its states hold what is
++         * left of the tail, less than a bit; the first block of a new send starts from it) */
++        uint32_t any = 0;
++        for (i = 0; i < n; i++)
++            any |= (uint32_t)rev_in[i];
++        if (!any && dfr_quiet >= 40u) {
++            for (i = 0; i < n; i++)
++                rev_side[i] = 0;
++            dfr.xp = dfr.ml = dfr.ms = 0;
++            hl.side = 1;
++            return;
++        }
++        dfr_peak = 0;
++        if (any)
++            dfr_quiet = 0;
 +    }
 +    for (i = 0; i < nc; i++) {
 +        int32_t x = (dfr.xp + 2 * rev_in[2u * i] + rev_in[2u * i + 1u]) >> 2, eL, eR, lL, lR, mm, ss;
@@ -855,7 +873,12 @@ index d2bcf92..eed2988 100644
 +        rev_side[2u * i + 1u] = ss;
 +        dfr.ml = mm;
 +        dfr.ms = ss;
++        {
++            int32_t m = (mm < 0 ? -mm : mm) | (ss < 0 ? -ss : ss);
++            dfr_peak = dfr_peak > m ? dfr_peak : m;
++        }
 +    }
++    dfr_quiet = dfr_peak < 2 ? (dfr_quiet < 255u ? dfr_quiet + 1u : 255u) : 0u;
 +    hl.side = 1;
 +}
 +#endif
@@ -876,7 +899,7 @@ index d2bcf92..eed2988 100644
      for (i = 0; i < 4u; i++)
          fx.comb_lp[i] = 0;
      for (i = 0; i < HL_NL; i++)
-@@ -533,6 +593,7 @@ static int32_t part_buf[CTL];                            /* a part's block (mix_
+@@ -533,6 +616,7 @@ static int32_t part_buf[CTL];                            /* a part's block (mix_
  #define SM1_b part_buf
  #endif
  
@@ -884,7 +907,7 @@ index d2bcf92..eed2988 100644
  /* the model changed (to rt): the old one's block fades out (HALL's stereo difference with it), its buffers are
   * cleared, the new one starts from silence */
  static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t *wet, uint32_t n, int32_t rt)
-@@ -554,6 +615,7 @@ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t
+@@ -554,6 +638,7 @@ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t
      rev_clear();
      fx.rtype = (uint8_t)rt;
  }
@@ -892,7 +915,7 @@ index d2bcf92..eed2988 100644
  
  /* process the three buses for one block; sends in, wet stereo-equal out */
  static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
-@@ -562,13 +624,17 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
+@@ -562,13 +647,17 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
      uint32_t i, dl = delay_samples();
      int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
      int32_t dmix = song.g[G_DMIX] * 258;
@@ -911,7 +934,7 @@ index d2bcf92..eed2988 100644
          /* chorus: modulated short delay, 5..15 ms */
          cho_buf[fx.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
          fx.cho_ph += cinc;
-@@ -580,15 +646,21 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
+@@ -580,15 +669,21 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
              y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
          }
          fx.cho_w++;
@@ -935,7 +958,7 @@ index d2bcf92..eed2988 100644
      rt = song.g[G_RTYPE];
      rt = rt == 1 || rt == 2 ? rt : 0;
      hl.side = 0;
-@@ -600,6 +672,7 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
+@@ -600,6 +695,7 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
          rev_spring(rev_in, wet, n);
      else
          rev_room(rev_in, wet, n);
@@ -943,7 +966,7 @@ index d2bcf92..eed2988 100644
  }
  
  /* after the buses: HALL's stereo difference to the left and from the right of the dry mix (the wet bus adds the
-@@ -613,6 +686,125 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
+@@ -613,6 +709,125 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
      }
  }
  
@@ -1069,7 +1092,7 @@ index d2bcf92..eed2988 100644
  /* INSERT (1.5, Discussions #78 and #177): one effect per track, after DIST and before the SLICER, with a dry / wet
   * MIX. TYPE (P_ITYPE, N_ITYPE; stored, append-only) and its three values A B C (P_IA .. P_IC, what they mean: params.c
   * ins_desc):
-@@ -803,6 +995,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
+@@ -803,6 +1018,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
          ins_drive(s, t, b, n, tw);
      t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
  }
@@ -1077,7 +1100,7 @@ index d2bcf92..eed2988 100644
  
  /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
   * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-@@ -896,7 +1089,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -896,7 +1112,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
  #endif
          t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                           * voice (the INSERT's: 46 ms, a flanger's feedback) */
@@ -1086,7 +1109,7 @@ index d2bcf92..eed2988 100644
          slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
          if (t->ins_run && !t->p[P_ITYPE])
              ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
-@@ -918,7 +1111,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
+@@ -918,7 +1134,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                                                           * them, no spill in the loop: the ISR's cost as before 1.5) */
          int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
          int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
@@ -1095,7 +1118,7 @@ index d2bcf92..eed2988 100644
          int32_t xmax = c > d ? c : d;
          xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
          for (i = 0; i < n; i++) {
-@@ -1072,6 +1265,16 @@ static void mix_block(int32_t *out, uint32_t n)
+@@ -1072,6 +1288,16 @@ static void mix_block(int32_t *out, uint32_t n)
      fx_buses(send_c, send_d, send_r, wet, n);
      if (hl.side)
          rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */

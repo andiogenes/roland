@@ -26,7 +26,7 @@ class DfRoomFloat(unittest.TestCase):
         cls.tmp = Path(tempfile.mkdtemp())
         subprocess.run(["sh", str(ROOT / "tests/dfroom_ref.sh"), str(cls.tmp)], check=True, capture_output=True,
                        env=dict(os.environ, DRAGONFLY_DIR=str(CLONE)))
-        subprocess.run(["cc", "-O2", "-DDFR_MAIN", "-o", str(cls.tmp / "dfc"), str(ROOT / "tools/fxlab/dfroom_float.c"), "-lm"], check=True)
+        subprocess.run(["cc", "-O2", "-DDFR_MAIN", "-DDFR_FULL", "-o", str(cls.tmp / "dfc"), str(ROOT / "tools/fxlab/dfroom_float.c"), "-lm"], check=True)
 
     def ir(self, fs):
         tag = {44100: "44", 22050: "22"}[fs]

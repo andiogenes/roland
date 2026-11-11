@@ -231,6 +231,18 @@ static int32_t dfr_dc(int32_t *s, int32_t x)
 /* base lengths at 34.125 kHz and the tap lists (Freeverb3's progenitor / progenitor2 tables) */
 static const uint16_t DFR_IAL[10] = {617, 535, 434, 347, 218, 162, 144, 122, 109, 74}, DFR_IAR[10] = {603, 547, 416, 364, 236, 162, 140, 131, 111, 79};
 static const uint16_t DFR_CAL[4] = {430, 341, 264, 174}, DFR_CAR[4] = {447, 324, 247, 191};
+/* The room cost about 70 % of an audio block on the host (the delay beside it the rest of that), too much when two hits start
+ * together on the FM-1. LITE (the default; -DDFR_FULL builds the whole): 6 of the 10 input all-passes and 2 of the 4
+ * cross-fed ones, the longest and the shortest kept, the others (and their buffers) dropped */
+#ifdef DFR_FULL
+#define DFR_NIA 10
+#define DFR_NCA 4
+static const uint8_t DFR_KIA[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, DFR_KCA[4] = {0, 1, 2, 3};
+#else
+#define DFR_NIA 6
+#define DFR_NCA 2
+static const uint8_t DFR_KIA[6] = {0, 2, 3, 5, 7, 9}, DFR_KCA[2] = {0, 2};
+#endif
 static const uint16_t DFR_ALC[8] = {239, 392, 1944, 612, 1212, 121, 816, 1264}, DFR_ARC[8] = {205, 329, 2032, 368, 1452, 5, 688, 1340};
 static const uint16_t DFR_OUTC[11] = {276, 468, 625, 312, 8, 24, 36, 40, 1, 192, 1572};
 static const uint16_t DFR_OUTC2[20] = {110, 790, 2, 189, 121, 10, 480, 359, 103, 30, 26, 10, 780, 109, 1200, 1310, 780, 10, 310, 800};
@@ -300,13 +312,13 @@ static void dfr_setup(int32_t size, int32_t decay, int32_t damp)
         dfr_dly(&dfr.lineL, mx + 12u); dfr_dly(&dfr.lineR, mx + 12u);
         dfr_dly(&dfr.ltr, 4u); dfr_dly(&dfr.rtl, 4u);                      /* the 0.2 ms L-R delay: 4 samples */
     }
-    for (i = 0; i < 10; i++) {
-        dfr_apm(&dfr.iaL[i], dfr_pp(DFR_IAL[i], tf), dfr_pp(10u, ex), -(70 * 32768 / 120), 32768);
-        dfr_apm(&dfr.iaR[i], dfr_pp(DFR_IAR[i], tf), dfr_pp(10u, ex), -(70 * 32768 / 120), 32768);
+    for (i = 0; i < DFR_NIA; i++) {
+        dfr_apm(&dfr.iaL[i], dfr_pp(DFR_IAL[DFR_KIA[i]], tf), dfr_pp(10u, ex), -(70 * 32768 / 120), 32768);
+        dfr_apm(&dfr.iaR[i], dfr_pp(DFR_IAR[DFR_KIA[i]], tf), dfr_pp(10u, ex), -(70 * 32768 / 120), 32768);
     }
-    for (i = 0; i < 4; i++) {
-        dfr_ap(&dfr.caL[i], dfr_pp(DFR_CAL[i], tf));
-        dfr_ap(&dfr.caR[i], dfr_pp(DFR_CAR[i], tf));
+    for (i = 0; i < DFR_NCA; i++) {
+        dfr_ap(&dfr.caL[i], dfr_pp(DFR_CAL[DFR_KCA[i]], tf));
+        dfr_ap(&dfr.caR[i], dfr_pp(DFR_CAR[DFR_KCA[i]], tf));
     }
     dfr_apm(&dfr.m15, dfr_pp(DFR_ALC[0], tf), dfr_pp(32u, ex), 12288, 32768);   /* diffusion 1: 0.375 */
     dfr_apm(&dfr.m17, dfr_pp(DFR_ALC[1], tf), dfr_pp(32u, ex), 10223, 32768);   /* diffusion 2: 0.312 */
@@ -394,7 +406,7 @@ static void dfr_step(int32_t x, int32_t *eL, int32_t *eR, int32_t *lL, int32_t *
     lfo = dfr_i1(&dfr.lfo1l, DFR_LFO1L_B, DFR_LFO1L_A, dfr_mr(osc_sine(dfr.ph1) + dfr_mr(2949, mn), DFR_WANDER));
     dfr.ph1 += DFR_INC1;
     mnoise = dfr_mr(mn, 1966);                                                       /* 0.06 */
-    for (k = 0; k < 10; k++) {
+    for (k = 0; k < DFR_NIA; k++) {
         outL = dfr_apm_run(&dfr.iaL[k], outL, lfo * sg, mnoise);
         outR = dfr_apm_run(&dfr.iaR[k], outR, lfo, mnoise * sg);
         sg = -sg;
@@ -403,7 +415,7 @@ static void dfr_step(int32_t x, int32_t *eL, int32_t *eR, int32_t *lL, int32_t *
     dfr_dbg[1] = outL;
 #endif
     crossL = outL; crossR = outR;
-    for (k = 0; k < 4; k++) {
+    for (k = 0; k < DFR_NCA; k++) {
         crossL = dfr_ap_run(&dfr.caL[k], 70 * 32768 / 120, crossL);
         crossR = dfr_ap_run(&dfr.caR[k], (70 * 32768 / 120), crossR);
     }

@@ -147,6 +147,16 @@ static void lfo_set(lfo_t *l, double f, double fs) { double th = 2 * M_PI * f / 
 /* the tables (34.125 kHz) */
 static const long IAL[10] = {617, 535, 434, 347, 218, 162, 144, 122, 109, 74}, IAR[10] = {603, 547, 416, 364, 236, 162, 140, 131, 111, 79};
 static const long CAL[4] = {430, 341, 264, 174}, CAR[4] = {447, 324, 247, 191};
+/* as fx_dfly.c: LITE keeps 6 of the 10 input all-passes and 2 of the 4 cross-fed ones (-DDFR_FULL: all) */
+#ifdef DFR_FULL
+#define NIA 10
+#define NCA 4
+static const int KIA[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, KCA[4] = {0, 1, 2, 3};
+#else
+#define NIA 6
+#define NCA 2
+static const int KIA[6] = {0, 2, 3, 5, 7, 9}, KCA[2] = {0, 2};
+#endif
 static const long ALC[8] = {239, 392, 1944, 612, 1212, 121, 816, 1264}, ARC[8] = {205, 329, 2032, 368, 1452, 5, 688, 1340};
 static const long DLC[6] = {1, 2, 1055, 344, 1572, 0}, DRC[6] = {1, 625, 835, 500, 16, 1460};
 static const long OUTC[11] = {276, 468, 625, 312, 8, 24, 36, 40, 1, 192, 1572};
@@ -232,8 +242,8 @@ static void room_init(room_t *r, double fs, double size, double predelay, double
         double rt60L = decay / r->rs, rt60s = decay * 1.0 / r->rs;
         float dl0 = (float)pow(10.0, log10(0.237) / rt60L), d1 = (float)pow(10.0, log10(0.938) / rt60s), d2 = (float)pow(10.0, log10(0.844) / rt60s), d3 = (float)pow(10.0, log10(0.906) / rt60s);
         r->loopdecay = dl0;
-        for (i = 0; i < 10; i++) { apm_init(&r->iaL[i], pp(IAL[i], tf), (long)pp(EXC / 3.0, ex)); apm_init(&r->iaR[i], pp(IAR[i], tf), (long)pp(EXC / 3.0, ex)); r->iaL[i].fb = r->iaR[i].fb = -r->idiff; r->iaL[i].dec = r->iaR[i].dec = 1.0f; }
-        for (i = 0; i < 4; i++) { ap_init(&r->caL[i], pp(CAL[i], tf)); ap_init(&r->caR[i], pp(CAR[i], tf)); r->caL[i].fb = r->caR[i].fb = r->odiff; }
+        for (i = 0; i < NIA; i++) { apm_init(&r->iaL[i], pp(IAL[KIA[i]], tf), (long)pp(EXC / 3.0, ex)); apm_init(&r->iaR[i], pp(IAR[KIA[i]], tf), (long)pp(EXC / 3.0, ex)); r->iaL[i].fb = r->iaR[i].fb = -r->idiff; r->iaL[i].dec = r->iaR[i].dec = 1.0f; }
+        for (i = 0; i < NCA; i++) { ap_init(&r->caL[i], pp(CAL[KCA[i]], tf)); ap_init(&r->caR[i], pp(CAR[KCA[i]], tf)); r->caL[i].fb = r->caR[i].fb = r->odiff; }
         apm_init(&r->m15, pp(ALC[0], tf), pp(EXC, ex)); apm_init(&r->m17, pp(ALC[1], tf), pp(EXC, ex));
         apm_init(&r->m19, pp(ARC[0], tf), pp(EXC, ex)); apm_init(&r->m21, pp(ARC[1], tf), pp(EXC, ex));
         r->m15.fb = r->m19.fb = 0.375f; r->m17.fb = r->m21.fb = 0.312f;
@@ -273,7 +283,7 @@ static void late_step(room_t *r, float inL, float inR, float *oL, float *oR)
     long i;
     lfo = iir1(&r->lfo1l, lfo);
     mnoise = mn * 0.06f;
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < NIA; i++) {
         outL = apm_proc_dc(&r->iaL[i], outL, lfo * sg, mnoise);
         outR = apm_proc_dc(&r->iaR[i], outR, lfo, mnoise * sg);
         sg = -sg;
@@ -282,7 +292,7 @@ static void late_step(room_t *r, float inL, float inR, float *oL, float *oR)
     dfr_dbg[1] = outL;
 #endif
     crossL = outL; crossR = outR;
-    for (i = 0; i < 4; i++) { crossL = ap_proc(&r->caL[i], crossL); crossR = ap_proc(&r->caR[i], crossR); }
+    for (i = 0; i < NCA; i++) { crossL = ap_proc(&r->caL[i], crossL); crossR = ap_proc(&r->caR[i], crossR); }
     outL = iir1(&r->lpfLin, outL + r->crossfeed * crossR);
     outR = iir1(&r->lpfRin, outR + r->crossfeed * crossL);
 #ifdef DFR_DBG
