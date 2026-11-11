@@ -1208,7 +1208,7 @@ index 43fbec7..b68ab48 100644
  /* a sound load put engine `to` where `from` was: when they differ, track t's records on the engine's own ids go (their
   * meaning changed); the ones on the common parameters (LEVEL, ENV, LFO, FILTER ENV, the sends, GLIDE, PAN, DETUNE)
 diff --git a/firmware/src/params.c b/firmware/src/params.c
-index 4d00f50..f2604aa 100644
+index 4d00f50..510003e 100644
 --- a/firmware/src/params.c
 +++ b/firmware/src/params.c
 @@ -58,7 +58,14 @@ static const char *const N_GO[] = {"--", "GO"};
@@ -1335,7 +1335,7 @@ index 4d00f50..f2604aa 100644
 -    if (id >= P_IA && id <= P_IC)                     /* the INSERT's values as its TYPE names them */
 -        return ins_desc(t->p[P_ITYPE], id - P_IA);
 +    if ((id >= P_IA && id <= P_IC) || id == P_ID || id == P_IE)   /* the INSERT's values as its TYPE names them */
-+        return ins_desc(t->p[P_ITYPE], id >= P_ID ? id - P_ID + 3u : id - P_IA);
++        return ins_desc(t->p[P_ITYPE], id == P_ID ? 3u : id == P_IE ? 4u : id - P_IA);   /* (D and E are not after C in the ids: core.h) */
      if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
          return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
      return &TP[id];

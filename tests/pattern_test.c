@@ -139,10 +139,32 @@ static int test_patterns_drum(void)
     return bad;
 }
 
+/* the INSERT's five values name themselves for every TYPE (params.c track_desc): A..C, then D and E, which are not after
+ * C in the ids (core.h); an index out of range crashed the device when an INSERT was turned on */
+static int test_insert_desc(void)
+{
+    static const uint8_t ID[5] = {P_IA, P_IB, P_IC, P_ID, P_IE};
+    uint32_t ty, i;
+    int ok = 1;
+    ui_power_on();
+    for (ty = 0; ty < 6u; ty++) {
+        trk[3].p[P_ITYPE] = (int16_t)ty;
+        for (i = 0; i < 5u; i++) {
+            const param_desc_t *d = track_desc(&trk[3], ID[i]);
+            ok &= d != 0 && d->label != 0;
+            if (ty)
+                ok &= d == ins_desc((uint32_t)ty, i);
+        }
+    }
+    trk[3].p[P_ITYPE] = 0;
+    return check("INSERT: every TYPE gives its five values their descriptions (A .. E)", ok);
+}
+
 int main(void)
 {
     int bad = 0;
     setvbuf(stdout, NULL, _IONBF, 0);
+    bad += test_insert_desc();
     bad += test_patterns_drum();
     bad += test_chain();
     {   /* (the hash itself is checked on the stock configuration, tests/song_probe_check.c: this build's REV differs) */
