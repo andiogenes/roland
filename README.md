@@ -1,14 +1,5 @@
 # Roland: drum machine firmware for the M-VAVE FM-1
 
-*The name is a nod to Steve Albini's Big Black, whose records credit their drummer as "Roland": a Roland TR-606 drum
-machine.*
-
-*(Steve Albini would hate this, of course. Everything new in this repository, the code changes and every word of this README,
-was written by an AI model, and it shows: status tables, a "read this first" section, a disclaimer for every occasion, a
-"What this is not" for good measure. It is, in short, digital, corporate-advisory, AI-generated slop wrapped around a drum
-machine, which is about as far from two people in a room with a Roland and a bad PA as you can get. The parts that were
-made by actual people (Felucca, SLOOP, the recordings) are credited below, and deserve better.)*
-
 <p align="center"><img src="docs/host-render/screens_palettes.png" alt="The drum grid in the five colour schemes" width="100%"></p>
 <p align="center"><sub>The 8-lane drum grid on a TR-606 kit, drawn by the firmware's own UI code in its five colour schemes
 (host render: the real screen code on a test display, not a photo of the FM-1).</sub></p>
