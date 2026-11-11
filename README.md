@@ -185,6 +185,23 @@ pre-release for you to look at and publish. The package has the synthesized kits
 Drumulator kits (their samples are not in the repository: build those yourself with `./build_drum.sh --release 0.1-roland`, which writes `dist/`).
 Nothing from a release has been installed on an FM-1 yet.
 
+## Build in Docker (an ARM64 Linux VM, UTM)
+
+The [`Dockerfile`](Dockerfile) builds the firmware where JieLi's x86-64 compiler cannot run natively: the image is `linux/amd64`, which an
+ARM64 Linux machine runs under QEMU emulation (slow, minutes, but it works). It holds the toolchain, the AC79 SDK and the Python packages; the
+repository is mounted into it. In the VM (Debian or Ubuntu):
+
+```sh
+sudo apt-get install -y docker.io docker-buildx qemu-user-static binfmt-support
+sudo docker run --privileged --rm tonistiigi/binfmt --install amd64        # once: registers the x86-64 emulator
+sudo docker build --platform linux/amd64 -t roland-fm1 .                   # downloads the toolchain (JieLi) and the SDK (gitee)
+sudo docker run --rm --platform linux/amd64 -v "$PWD:/src" roland-fm1 --release 0.1-roland   # -> dist/felucca-0.1-roland.fwsc
+```
+
+Without `--release` the package is `out/roland-drum.fwsc`. HR-16B and Drumulator WAVs in `assets/hr16` and `assets/drumulator` are picked up through
+the mount. `--entrypoint ./host_render.sh` runs the host render and tests instead. **Not run by me**: the sandbox this was written in has no Docker
+and could not reach the toolchain server, so the file is untested; if a step fails, the message is the first thing to send me.
+
 ## Build
 
 You need what Felucca's [BUILDING.md](https://github.com/hugelton/Felucca/blob/main/BUILDING.md) lists: Python 3 with
