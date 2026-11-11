@@ -85,6 +85,44 @@ int main(int argc, char **argv)
         draw(S_DRUM);
         write_ppm(out, "NIGHT", "reverb_page");
     }
+    {   /* PATTERN (ARP's page): four patterns chained, the third playing, 2 and 8 queued; and idle with a chain */
+        uint32_t q, i, play;
+        for (q = 0; q < NPALETTES && strcmp(UI_PALETTES[q].name, "NIGHT"); q++)
+            ;
+        for (play = 0; play < 2u; play++) {
+            setup(S_DRUM);
+            song.playing = 0;
+            chain.running = chain.armed = 0;
+            seq_stop();
+            for (i = 0; i < 3u; i++)
+                project_save(i);
+            ui.msg_t = 0;
+            ui.msg[0] = 0;
+            dpat.n = 5;
+            for (i = 0; i < 5u; i++)
+                dpat.id[i] = (uint8_t)((i == 3u ? 0u : i == 4u ? 2u : i) & 7u);
+            dpat.cur = 2;
+            if (play) {                                 /* playing: the chain's third pattern, 2 and 6 queued */
+                chain.config.count = 5;
+                for (i = 0; i < 5u; i++)
+                    chain.config.row[i] = chain_row_of(CHAIN_PAT0 + dpat.id[i], 1);
+                chain.row = 2;
+                chain.lane[0] = (uint8_t)(CHAIN_PAT0 + dpat.id[2]);
+                chain.qh = 0;
+                chain.q[0] = CHAIN_PAT0 + 1;
+                chain.q[1] = CHAIN_PAT0 + 5;
+                chain.qt = 2;
+                chain.running = 1;
+            }
+            go_title("PATTERN");
+            pal(q);
+            draw(S_DRUM);
+            write_ppm(out, "NIGHT", play ? "pattern_playing" : "pattern_chain");
+            chain.running = 0;
+            chain.qh = chain.qt = 0;
+            dpat.n = 0;
+        }
+    }
     {   /* the same grid and KIT page in every palette (GREY MONO GREEN PAPER NIGHT) */
         static const char *const PALS[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};
         uint32_t q, pi;

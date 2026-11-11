@@ -1,5 +1,5 @@
 diff --git a/firmware/src/core.h b/firmware/src/core.h
-index 2c1b980..cdfe276 100644
+index 2c1b980..d48cbcc 100644
 --- a/firmware/src/core.h
 +++ b/firmware/src/core.h
 @@ -35,11 +35,25 @@
@@ -29,15 +29,21 @@ index 2c1b980..cdfe276 100644
                                                  * in the display order of engines.c ENGINE_ORDER */
  #define UP_SLOTS 32u             /* user presets (upreset.c) */
  
-@@ -79,6 +93,7 @@ enum {                          /* per-track parameters */
-     P_FTYPE,                                   /* 1.5 (#104): ANALOG's filter TYPE, LP (as before) / BP / HP (eng_analog.c) */
-     P_ESYNC,                                   /* 1.5 (#175): ENV SYNC: ATK DEC REL as note values of the tempo (voice.c) */
-     P_ATSNS, P_ATDST, P_ATAMT,                 /* 1.8: AFTERTOUCH: the keys' pressure (keytouch.c) and its routing (mod.c) */
-+    P_ID, P_IE,                                /* DRUM machine: the INSERT's fourth and fifth values (the devices have up to five controls) */
+@@ -82,6 +96,13 @@ enum {                          /* per-track parameters */
      P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
      P_COUNT
  };
-@@ -118,6 +133,11 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const
++/* The drum machine's INSERT has up to five values (the devices' controls): D and E ride on two of DIGITAL's OP4 ENV
++ * slots, which a drum build never uses (no DIGITAL: params.c FMOP). A project keeps its parameters in 4 x P_COUNT bytes
++ * and FUN10 has room for none more (project.c proj_pack: 3308 of 3309 bytes at 114) */
++#define P_ID P_FM4_ATK
++#define P_IE P_FM4_DEC
++/* an operator value of DIGITAL (inert here): not INSERT D / E */
++#define P_IS_FMOP(id) ((id) >= P_FM1_ATK && (id) <= P_FM4_LEVEL && (id) != P_ID && (id) != P_IE)
+ 
+ enum {                          /* global parameters */
+     G_BPM, G_SWING, G_CLOCK, G_TUNE,
+@@ -118,6 +139,11 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const
  /* engine indices the stores name (engines.c ENGINES[]: append-only) */
  #define ENGI_PHYS 9u
  #define ENGI_DRUM 10u
@@ -49,19 +55,19 @@ index 2c1b980..cdfe276 100644
  /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
   * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
   * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
-@@ -320,9 +340,9 @@ typedef struct track {
-     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block: its S&H is drawn after the parts (voice.c) */
-     uint32_t esync_k[3];         /* ATK's step, DEC's and REL's coefficient (Q16) this block (voice.c esync_coef) */
-     uint8_t spread_on;           /* SPREAD this block (fx.c mix_part, voice.c track_render) */
--    uint8_t rsv_sz[15];          /* (sizeof(track_t) a multiple of 16: below; 1.8's AFTERTOUCH grew it by 14) */
-+    uint8_t rsv_sz[11];          /* (sizeof(track_t) a multiple of 16: below; 1.8's AFTERTOUCH grew it by 14; the drum machine's INSERT D and E took 4) */
- #else
--    uint8_t rsv_sz[12];          /* (sizeof(track_t) a multiple of 16: below; 1.8's AFTERTOUCH took 2 of it) */
-+    uint8_t rsv_sz[8];           /* (sizeof(track_t) a multiple of 16: below; 1.8's AFTERTOUCH took 2 of it, INSERT D and E 4) */
- #endif
-     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
-     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
-@@ -367,6 +387,9 @@ typedef struct {
+@@ -244,6 +270,11 @@ _Static_assert(sizeof(motion_store_t) == 388u, "motion disk layout (FUN10)");
+  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot
+  * (chain_v9_t, FUN6..FUN9): it loads as a section with the four on it (song_chain.c chain_from_v9) */
+ #define CHAIN_SILENT 4u
++/* Drum patterns (PATTERN mode, ui_pat.c): lane ids 5..12 = the 32-step halves of the project slots, id = 5 + 2 * slot +
++ * half (the first / second two pages of the track's 64 steps); chain_slot_of: the slot a lane id reads (0xFF: none) */
++#define CHAIN_PAT0 5u
++#define CHAIN_PATN 8u
++#define CHAIN_SLOT_OF(s) ((s) < 4u ? (s) : (s) >= CHAIN_PAT0 && (s) < CHAIN_PAT0 + CHAIN_PATN ? ((s) - CHAIN_PAT0) >> 1 : 0xFFu)
+ typedef struct { uint8_t slot[NTRK], repeat; } chain_row_t;
+ typedef struct {
+     uint8_t count, rsv[3];
+@@ -367,6 +398,9 @@ typedef struct {
  #define MCH_N 18u                    /* channels 1..16, OMNI, OFF */
  
  static track_t trk[NTRK];        /* the instrument: four parts */
@@ -714,6 +720,28 @@ index 579413a..3646e7e 100644
  #include "fx.c"
  
  /* ------------------------------------------------- MIDI, sequencer --- */
+diff --git a/firmware/src/fm4_convert.c b/firmware/src/fm4_convert.c
+index 2fecadc..7573445 100644
+--- a/firmware/src/fm4_convert.c
++++ b/firmware/src/fm4_convert.c
+@@ -353,7 +353,8 @@ static uint32_t fm4_convert(int16_t *p, uint8_t *v)
+         p[P_E0 + k] = 0;
+     p[P_E7] = FM4_TO_FM6[near];
+     for (k = P_FM1_ATK; k <= P_FM4_LEVEL; k++)
+-        p[k] = (k - P_FM1_ATK) % 5u == 2u || (k - P_FM1_ATK) % 5u == 4u ? 127 : 0;
++        if (P_IS_FMOP(k))                               /* (not the drum machine's INSERT D and E) */
++            p[k] = (k - P_FM1_ATK) % 5u == 2u || (k - P_FM1_ATK) % 5u == 4u ? 127 : 0;
+     return FM4_TO_FM6[near];
+ }
+ 
+@@ -375,5 +376,6 @@ static void fm4_preset_values(int16_t *p, uint32_t k)
+     for (i = 0; i < 4u; i++)
+         p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+     for (i = P_FM1_ATK; i <= P_FM4_LEVEL; i++)
+-        p[i] = (i - P_FM1_ATK) % 5u == 2u || (i - P_FM1_ATK) % 5u == 4u ? 127 : 0;
++        if (P_IS_FMOP(i))
++            p[i] = (i - P_FM1_ATK) % 5u == 2u || (i - P_FM1_ATK) % 5u == 4u ? 127 : 0;
+ }
 diff --git a/firmware/src/fx.c b/firmware/src/fx.c
 index d2bcf92..eed2988 100644
 --- a/firmware/src/fx.c
@@ -1085,7 +1113,7 @@ index d2bcf92..eed2988 100644
          scope_take_mix(n);
      if (perf) {
 diff --git a/firmware/src/icons.c b/firmware/src/icons.c
-index c03e456..113a94f 100644
+index c03e456..54773f6 100644
 --- a/firmware/src/icons.c
 +++ b/firmware/src/icons.c
 @@ -194,16 +194,20 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
@@ -1109,6 +1137,14 @@ index c03e456..113a94f 100644
  #if FELUCCA_SLICE
      if (d->names == N_SLC_DIV)
          return ICON_SLICE;                    /* SLICE: DIV is the slicing, MODE the gate, REV the direction */
+@@ -273,6 +277,7 @@ static uint32_t page_icon(const page_t *pg)
+     case GR_TRK: return ICON_X_MIXER;         /* MIXER (HOME): vertical faders */
+     case GR_PATS: return ICON_X_PATTERN;      /* SAVE > PHRASES: the pattern loader */
+     case GR_SONG: return ICON_X_SONG;         /* SONG: the disc */
++    case GR_PAT: return ICON_X_PATTERN;       /* PATTERN */
+     case GR_EVENTS: return motion_icon();     /* AUTOMATION */
+     default: return ICON_NONE;
+     }
 diff --git a/firmware/src/main.c b/firmware/src/main.c
 index 69ba568..cb57011 100644
 --- a/firmware/src/main.c
@@ -1150,7 +1186,7 @@ index 864dfae..715c57f 100644
  #define NMSLOT 4u
  #define NMSLOT_ALL (NMSLOT + 1u)  /* + 1.8's AFTERTOUCH (VOICE 3): a slot of its own, its source AT (P_ATDST, P_ATAMT) */
 diff --git a/firmware/src/motion.c b/firmware/src/motion.c
-index 43fbec7..fbccafd 100644
+index 43fbec7..b68ab48 100644
 --- a/firmware/src/motion.c
 +++ b/firmware/src/motion.c
 @@ -38,7 +38,7 @@ static int motion_param(uint32_t id)
@@ -1162,8 +1198,17 @@ index 43fbec7..fbccafd 100644
                                          * POL and QUANTIZE, nor 1.5's filter TYPE and ENV SYNC: settings; the DRUM lane
                                          * levels, SPREAD (#148: continuous, as PAN), 1.5's INSERT (TYPE too: a lock
                                          * switches it for a step, fx.c track_insert fades over), E0..E7) */
+@@ -370,7 +370,7 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
+ /* an id whose meaning is the engine's own: EDIT's E1..E8, DIGITAL's operators, DRUM's lane levels */
+ static int motion_engine_id(uint32_t id)
+ {
+-    return (id >= P_E0 && id <= P_E7) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || (id >= P_LN0 && id <= P_LN7);
++    return (id >= P_E0 && id <= P_E7) || P_IS_FMOP(id) || (id >= P_LN0 && id <= P_LN7);
+ }
+ /* a sound load put engine `to` where `from` was: when they differ, track t's records on the engine's own ids go (their
+  * meaning changed); the ones on the common parameters (LEVEL, ENV, LFO, FILTER ENV, the sends, GLIDE, PAN, DETUNE)
 diff --git a/firmware/src/params.c b/firmware/src/params.c
-index 4d00f50..ad988d8 100644
+index 4d00f50..f2604aa 100644
 --- a/firmware/src/params.c
 +++ b/firmware/src/params.c
 @@ -58,7 +58,14 @@ static const char *const N_GO[] = {"--", "GO"};
@@ -1181,12 +1226,25 @@ index 4d00f50..ad988d8 100644
  /* CRUSH: BITS 1..16 and RATE (the held sample's rate, fx.c INS_HOLD) over the range in 16 even parts (0-terminated) */
  static const char *const N_IBITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
                                        "16", 0};
-@@ -177,10 +184,44 @@ static const param_desc_t TP[P_COUNT] = {
-     [P_ATSNS] = PE("AT", N_ATSNS, 0),
-     [P_ATDST] = PE("ATDST", N_MDST, 0),
-     [P_ATAMT] = PD("ATAMT", F_BIPCT, -64, 63, 0),
-+    [P_ID] = PD("INS D", F_PCT, 0, 127, 64),
+@@ -149,7 +156,15 @@ static const param_desc_t TP[P_COUNT] = {
+                 [P_FM##k##_SUS] = PD("SUS", F_PCT, 0, 127, 127), \
+                 [P_FM##k##_REL] = PD("REL", F_TIME, 0, 127, 0), \
+                 [P_FM##k##_LEVEL] = PD("LVL", F_PCT, 0, 127, 127)
+-    FMOP(1), FMOP(2), FMOP(3), FMOP(4),
++    FMOP(1), FMOP(2), FMOP(3),
++#if FELUCCA_DRUMONLY
++    [P_ID] = PD("INS D", F_PCT, 0, 127, 64),      /* (OP4's ATK and DEC: INSERT D and E, core.h) */
 +    [P_IE] = PD("INS E", F_PCT, 0, 127, 0),
++    [P_FM4_SUS] = PD("SUS", F_PCT, 0, 127, 127), [P_FM4_REL] = PD("REL", F_TIME, 0, 127, 0),
++    [P_FM4_LEVEL] = PD("LVL", F_PCT, 0, 127, 127),
++#else
++    FMOP(4),
++#endif
+ #undef FMOP
+     [P_CHRD] = PE("CHRD", N_CHRD, 0),
+     [P_VOIC] = PE("VOIC", N_VOIC, 0),
+@@ -179,8 +194,40 @@ static const param_desc_t TP[P_COUNT] = {
+     [P_ATAMT] = PD("ATAMT", F_BIPCT, -64, 63, 0),
  };
  
 +#if FELUCCA_DRUMONLY
@@ -1227,7 +1285,7 @@ index 4d00f50..ad988d8 100644
  #define PU(l, f, df, n, u) {l, f, 0, 127, df, n, u}
  static const param_desc_t INS_DESC[3][3] = {
      {PU("DRIVE", F_PCT, 64, 0, 0), PU("TONE", F_CUTOFF, 96, 0, 0), PU("LEVEL", F_DB, 96, 0, 0)},
-@@ -190,10 +231,11 @@ static const param_desc_t INS_DESC[3][3] = {
+@@ -190,10 +237,11 @@ static const param_desc_t INS_DESC[3][3] = {
  #undef PU
  static const param_desc_t *ins_desc(int32_t type, uint32_t k)
  {
@@ -1241,7 +1299,7 @@ index 4d00f50..ad988d8 100644
  
  static const param_desc_t GP[G_COUNT] = {
      [G_BPM] = PD("BPM", F_BPM, 40, 240, 120),
-@@ -204,8 +246,16 @@ static const param_desc_t GP[G_COUNT] = {
+@@ -204,8 +252,16 @@ static const param_desc_t GP[G_COUNT] = {
      [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
      [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
      [G_DMIX] = PD("MIX", F_PCT, 0, 127, 90),
@@ -1258,7 +1316,7 @@ index 4d00f50..ad988d8 100644
      [G_CRATE] = PD("CRT", F_LFOHZ, 0, 127, 40),
      [G_CDEPTH] = PD("CDP", F_PCT, 0, 127, 60),
      /* G_MIDI, G_SYNC, G_INFO: the old SYSTEM page's (gone in 1.2), on no page: MIDI's value was never read (its card
-@@ -226,7 +276,11 @@ static const param_desc_t GP[G_COUNT] = {
+@@ -226,7 +282,11 @@ static const param_desc_t GP[G_COUNT] = {
      [G_CLRSEQ] = PE("CLRSQ", N_GO, 0),
      [G_INITSND] = PE("INIT", N_GO, 0),
      /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
@@ -1270,7 +1328,7 @@ index 4d00f50..ad988d8 100644
      /* inert: they set the GM drum part (level, reverb send), which is gone (drums are the DRUM engine
       * on any part). On no page; kept so the ids and G_COUNT, which the project format and the
       * editor protocol depend on, do not move */
-@@ -241,8 +295,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
+@@ -241,8 +301,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
          const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
          return d ? d : &e->edit[id - P_E0];
      }
@@ -1281,7 +1339,7 @@ index 4d00f50..ad988d8 100644
      if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
          return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
      return &TP[id];
-@@ -262,9 +316,18 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
+@@ -262,9 +322,18 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
   * stands for */
  static int32_t enum_orig(const param_desc_t *d, int32_t v)
  {
@@ -1300,7 +1358,7 @@ index 4d00f50..ad988d8 100644
  }
  
  /* a stored value as the parameter takes it (projects, user presets, motion): inside d's range, and a retired
-@@ -276,7 +339,7 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
+@@ -276,7 +345,7 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
      v = clamp(v, d->min, d->max);
      if (d->names == N_FM6_PATCH)
          return v > (int32_t)FM6_OWN ? (int32_t)FM6_OWN : v;
@@ -1309,7 +1367,7 @@ index 4d00f50..ad988d8 100644
  }
  
  /* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice */
-@@ -443,7 +506,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
+@@ -443,10 +512,10 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
  /* ------------------------------------------------------------ pages --- */
  enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
         FAM_COUNT };
@@ -1317,8 +1375,12 @@ index 4d00f50..ad988d8 100644
 +enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK, SC_M1, SC_M2 };   /* SC_M1, SC_M2: the master chain's slots (fx.c mtrk) */   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
  enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
         GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-        GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
-@@ -454,6 +517,19 @@ typedef struct {
+-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
++       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_PAT };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
+ 
+ typedef struct {
+     const char *title;
+@@ -454,6 +523,19 @@ typedef struct {
      uint8_t id[4];               /* param ids; 0xFF = empty slot */
  } page_t;
  
@@ -1338,7 +1400,7 @@ index 4d00f50..ad988d8 100644
  static const page_t PAGES[] = {
      {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
      {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* (P_ED_FX: nothing reads it);
-@@ -462,10 +538,20 @@ static const page_t PAGES[] = {
+@@ -462,10 +544,20 @@ static const page_t PAGES[] = {
      {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
      {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
      {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
@@ -1360,7 +1422,20 @@ index 4d00f50..ad988d8 100644
      {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
      {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING / HALL */
      {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
-@@ -528,6 +614,13 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
+@@ -498,8 +590,12 @@ static const page_t PAGES[] = {
+                                                                              * the tap after PRESETS (up to 1.1.5 SEQ's) */
+     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
+     {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
++#if FELUCCA_DRUMONLY
++    {"PATTERN", FAM_ARP, SC_GLOBAL, GR_PAT, {0xFF, 0xFF, 0xFF, 0xFF}},       /* ARP's button: the drum patterns (ui_pat.c) */
++#else
+     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
+     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
++#endif
+     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
+     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},   /* 1.5.1 (#199): the cursor step's CHANCE RATCH NUDGE VEL
+                                                              * (ui.c detail_on, ui_input.c sd_turn) */
+@@ -528,6 +624,13 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
          *valp = &song.g[id];
          return &GP[id];
      }
@@ -1462,7 +1537,7 @@ index 0f9108c..6e768aa 100644
                pf.fn || perf_k[0] || perf_k[1] || perf_k[2];
  }
 diff --git a/firmware/src/project.c b/firmware/src/project.c
-index d267cd1..fef57ba 100644
+index d267cd1..841c5a3 100644
 --- a/firmware/src/project.c
 +++ b/firmware/src/project.c
 @@ -63,7 +63,7 @@
@@ -1470,7 +1545,7 @@ index d267cd1..fef57ba 100644
   * track parameters. 1.5 took seven of them (no format change, FUN10 as it was): the INSERT (P_ITYPE .. P_IMIX, 96..100),
   * ANALOG's filter TYPE (P_FTYPE, 101) and ENV SYNC (P_ESYNC, 102), before the engine values (P_COUNT 111, P_E0 103; 16
 - * spare, room for 4). A FUN10 of 1.2 .. 1.4 (104) loads by count: the INSERT OFF, TYPE LP, ENV SYNC OFF (as they
-+ * spare, room for 4; the drum machine's INSERT D and E (P_ID, P_IE) took two of them: P_COUNT is 2 more, a record of fewer loads by count with D 64 and E 0). A FUN10 of 1.2 .. 1.4 (104) loads by count: the INSERT OFF, TYPE LP, ENV SYNC OFF (as they
++ * spare, room for 4; the drum machine's INSERT D and E (P_ID, P_IE) ride on two of DIGITAL's unused OP4 ENV slots (core.h): P_COUNT is 114 and a project fills 3308 of the 3309 bytes). A FUN10 of 1.2 .. 1.4 (104) loads by count: the INSERT OFF, TYPE LP, ENV SYNC OFF (as they
   * played), its engine values and their motion moved up by seven.
   * Firmware 1.2 .. 1.4 refuses a FUN10 of more parameters than its own (np > P_COUNT): a 1.5 project shows EMPTY there. FUN9 / FUN8 / FUN7 load as before (their 64 records of 4 bytes read by proj_motion_v9, every
   * step's nudge 0: the timing they always had; parameters mapped by count, the four new ones at their defaults:
@@ -1483,6 +1558,143 @@ index d267cd1..fef57ba 100644
      uint32_t k, i, n, hit = 0;
      for (k = 0; k < NTRK; k++) {
          proj_trk_t *d = &q->t[k];
+@@ -343,7 +343,7 @@ static void proj_fm4(project_t *q)
+         return;
+     for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
+         const motion_event_t *e = &q->motion.event[i];
+-        if (((hit >> (e->place >> 6)) & 1u) && (MOTION_ID(e) >= P_E0 || (MOTION_ID(e) >= P_FM1_ATK && MOTION_ID(e) <= P_FM4_LEVEL)))
++        if (((hit >> (e->place >> 6)) & 1u) && (MOTION_ID(e) >= P_E0 || P_IS_FMOP(MOTION_ID(e))))
+             continue;
+         q->motion.event[n++] = *e;
+     }
+@@ -1225,23 +1225,10 @@ static void persist_boot(void)                    /* before settings_init / pane
+ static int project_used(uint32_t slot) { return proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t)); }
+ 
+ /* Main loop only: no flash access or copies when the ISR changes rows. */
+-static uint32_t chain_prepare(void)
++/* copy the sources of the slots in `used` (a bit each) for the song or patterns: 0, or 3 + the slot that could not be read */
++static uint32_t chain_load(uint32_t used)
+ {
+-    uint32_t i, k, j, used = 0;
+-    if (transport_busy())
+-        return 2;
+-    if (!chain_valid(&chain_config) || !chain_config.count)
+-        return 1;
+-    for (i = 0; i < chain_config.count; i++)            /* the slots the lanes play (not the silent ones) */
+-        for (k = 0; k < NTRK; k++) {
+-            uint32_t s = chain_config.row[i].slot[k];
+-            if (s >= 4u || ((used >> s) & 1u))
+-                continue;
+-            if (!project_used(s))
+-                return 3u + s;
+-            used |= 1u << s;
+-        }
+-    chain.config = chain_config;
++    uint32_t i, k, j;
+     for (i = 0; i < 4u; i++)
+         if ((used >> i) & 1u) {
+             project_t *p = &proj_scratch;
+@@ -1267,6 +1254,62 @@ static uint32_t chain_prepare(void)
+                         TP[P_SLEN + j].min, TP[P_SLEN + j].max);
+             }
+         }
++    return 0;
++}
++static uint32_t chain_prepare(void)
++{
++    uint32_t i, k, used = 0;
++    if (transport_busy())
++        return 2;
++    if (!chain_valid(&chain_config) || !chain_config.count)
++        return 1;
++    for (i = 0; i < chain_config.count; i++)            /* the slots the lanes play (not the silent ones) */
++        for (k = 0; k < NTRK; k++) {
++            uint32_t s = chain_config.row[i].slot[k];
++            if (s >= 4u || ((used >> s) & 1u))
++                continue;
++            if (!project_used(s))
++                return 3u + s;
++            used |= 1u << s;
++        }
++    chain.config = chain_config;
++    chain.loop = chain.inovr = 0;
++    chain.qh = chain.qt = 0;
++    k = chain_load(used);
++    if (k)
++        return k;
++    RING_PUBLISH();
++    chain.armed = 1;
++    transport_req = 1;
++    return 0;
++}
++
++/* PATTERN mode's PLAY (ui_pat.c): the chain of patterns ids[0..n-1] (0..7: slot p / 2, half p % 2; lane id CHAIN_PAT0 + p), looping; n = 0: cur
++ * alone. Every saved slot is copied, so a pattern queued while it plays is there. 0, 1: nothing saved, 2: busy, 3 + slot */
++static uint32_t chain_prepare_pat(const uint8_t *ids, uint32_t n, uint32_t cur)
++{
++    uint32_t i, used = 0, rc;
++    if (transport_busy())
++        return 2;
++    for (i = 0; i < 4u; i++)
++        if (project_used(i))
++            used |= 1u << i;
++    if (!used)
++        return 1;
++    memset(&chain.config, 0, sizeof chain.config);
++    chain.config.count = (uint8_t)(n ? n : 1u);
++    for (i = 0; i < chain.config.count; i++) {
++        uint32_t p = (n ? ids[i] : cur) & 7u;
++        if (!((used >> (p >> 1)) & 1u))
++            return 3u + (p >> 1);
++        chain.config.row[i] = chain_row_of(CHAIN_PAT0 + p, 1);
++    }
++    chain.loop = 1;
++    chain.inovr = 0;
++    chain.qh = chain.qt = 0;
++    rc = chain_load(used);
++    if (rc)
++        return rc;
+     RING_PUBLISH();
+     chain.armed = 1;
+     transport_req = 1;
+diff --git a/firmware/src/seq.c b/firmware/src/seq.c
+index b34c378..3ea9ad7 100644
+--- a/firmware/src/seq.c
++++ b/firmware/src/seq.c
+@@ -106,6 +106,15 @@ static int32_t song_key(uint32_t k)
+     return k < 10u ? S[k] : -1;
+ }
+ 
++/* PATTERN (song.grid 4, ui_pat.c): the eight white keys F G A B C D E F (keys 0 2 4 6 7 9 11 12) are patterns 1..8; -1 = a key
++ * that plays */
++#define PAT_KEYS (1u << 0 | 1u << 2 | 1u << 4 | 1u << 6 | 1u << 7 | 1u << 9 | 1u << 11 | 1u << 12)
++static int32_t dp_key(uint32_t k)
++{
++    static const int8_t P[13] = {0, -1, 1, -1, 2, -1, 3, 4, -1, 5, -1, 6, 7};
++    return k < 13u ? P[k] : -1;
++}
++
+ static uint32_t scale_mask(const track_t *t)
+ {
+     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
+@@ -824,7 +833,7 @@ static void keyboard_block(void)
+     }
+     lay = (fm1_in.buttons & kb_mask) || kb_lock;  /* (#83: kb_lock, a layer locked open with no button held) */
+     fx = (fm1_in.buttons & perf_mask) || (kb_lock & 2u);
+-    mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* the keys that never sound here */
++    mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : song.grid == 4u ? PAT_KEYS : 0u;   /* the keys that never sound here */
+     for (k = 0; k < 27u; k++) {
+         if (!((ch >> k) & 1u))
+             continue;
+@@ -1133,7 +1142,7 @@ static __attribute__((noinline)) uint32_t seq_time(track_t *t, uint32_t idx, uin
+ static const motion_store_t *chain_motion(const track_t *t)
+ {
+     uint32_t s = chain.lane[trk_index(t)];
+-    return !chain.running ? &motion : s < 4u ? &chain.source[s].motion : 0;
++    return !chain.running ? &motion : s < 4u ? &chain.source[s].motion : 0;   /* (a pattern, 5..12: none) */
+ }
+ 
+ /* step idx plays: its chance (the one roll, as seq_step made it: a step that does not play applies no lock), the
 diff --git a/firmware/src/settings_persist.c b/firmware/src/settings_persist.c
 index 27012db..d989d57 100644
 --- a/firmware/src/settings_persist.c
@@ -1497,11 +1709,136 @@ index 27012db..d989d57 100644
  #if defined(FM4_NPRESETS) && !FELUCCA_FM4
      {   /* DIGITAL's starred presets (engine 1, retired) -> the FM6 presets that cover them (fm4_convert.c) */
          uint32_t k;
+diff --git a/firmware/src/song_chain.c b/firmware/src/song_chain.c
+index 3a59238..47f7a8f 100644
+--- a/firmware/src/song_chain.c
++++ b/firmware/src/song_chain.c
+@@ -31,6 +31,11 @@ static struct {
+     uint8_t clk;                             /* the track whose loop counts the section (chain_clock) */
+     uint8_t rec;
+     uint32_t carry;
++    /* PATTERN mode (ui_pat.c): the chain loops, and patterns queued live (q: main loop writes qt, the ISR qh) play
++     * once between two sections (a chain of one: the queued one replaces it); inovr: a queued one is playing */
++    uint8_t loop, inovr;
++    volatile uint8_t qh, qt;
++    uint8_t q[8];
+ } chain;
+ /* a silent lane: its steps (empty: nothing plays) and its timing (a 4/4 bar of 1/16: the section's length when every
+  * track is silent) */
+@@ -92,7 +97,7 @@ static uint32_t chain_clock(const chain_row_t *r)
+ {
+     uint32_t k;
+     for (k = 0; k < NTRK; k++)
+-        if (r->slot[k] < CHAIN_SILENT)
++        if (r->slot[k] != CHAIN_SILENT)
+             return k;
+     return 0;
+ }
+@@ -104,24 +109,29 @@ static const step_t *seq_steps(const track_t *t)
+     if (!chain.running)
+         return t->step;
+     s = chain.lane[k];
+-    return s < 4u ? chain.source[s].step[k] : chain_silent;
++    if (CHAIN_SLOT_OF(s) > 3u)
++        return chain_silent;
++    return chain.source[CHAIN_SLOT_OF(s)].step[k] + (s >= CHAIN_PAT0 ? ((s - CHAIN_PAT0) & 1u) * (NSTEP / 2u) : 0u);
+ }
+ static void motion_restore(track_t *t);
+ /* a section starts (chain_start, chain_tick: once a section, not per block; not inlined: off the audio ISR's loop) */
+-static __attribute__((noinline)) void chain_apply(void)
++static __attribute__((noinline)) void chain_apply(const chain_row_t *r)
+ {
+     uint32_t i;
+-    const chain_row_t *r = &chain.config.row[chain.row];
+     chain.clk = (uint8_t)chain_clock(r);
+     for (i = 0; i < NTRK; i++) {
+         track_t *t = &trk[i];
+-        uint32_t s = r->slot[i];
+-        chain.lane[i] = (uint8_t)(s < 4u ? s : CHAIN_SILENT);
++        uint32_t s = r->slot[i], src = CHAIN_SLOT_OF(s);
++        chain.lane[i] = (uint8_t)(src < 4u ? s : CHAIN_SILENT);
+         seq_release(t);
+         motion_restore(t);
+-        if (s < 4u) {
+-            memcpy(&t->p[P_SLEN], chain.source[s].timing[i], sizeof chain.timing[i]);
+-            t->p[P_SQNT] = chain.source[s].qnt[i];
++        if (src < 4u) {
++            memcpy(&t->p[P_SLEN], chain.source[src].timing[i], sizeof chain.timing[i]);
++            t->p[P_SQNT] = chain.source[src].qnt[i];
++            if (s >= CHAIN_PAT0) {                    /* a pattern: 32 steps, the first or second half of the 64 */
++                int32_t len = t->p[P_SLEN], h = (int32_t)NSTEP / 2;
++                t->p[P_SLEN] = (int16_t)(((s - CHAIN_PAT0) & 1u) ? (len > h ? len - h : h) : (len < h ? len : h));
++            }
+         } else {
+             t->p[P_SLEN] = CHAIN_SIL_LEN;
+             t->p[P_SDIV] = CHAIN_SIL_DIV;
+@@ -149,7 +159,7 @@ static void chain_start(void)
+     chain.carry = 0;
+     chain.running = 1;
+     chain.armed = 0;
+-    chain_apply();
++    chain_apply(&chain.config.row[0]);
+ }
+ static void chain_stop(void)
+ {
+@@ -177,12 +187,31 @@ static void chain_tick(uint32_t n)
+         chain.remaining--;
+         return;
+     }
+-    if (chain.row + 1u >= chain.config.count) {
+-        seq_stop();
++    chain.carry = t->seq_pos + n - length;
++    chain.remaining = 1;
++    if ((uint8_t)(chain.qt - chain.qh)) {              /* PATTERN mode: a queued pattern */
++        uint32_t id = chain.q[chain.qh & 7u];
++        chain.qh++;
++        if (chain.config.count <= 1u) {
++            chain.config.row[0] = chain_row_of(id, 1);
++            chain.row = 0;
++            chain_apply(&chain.config.row[0]);
++        } else {
++            chain_row_t one = chain_row_of(id, 1);
++            chain.inovr = 1;
++            chain_apply(&one);
++        }
+         return;
+     }
+-    chain.carry = t->seq_pos + n - length;
++    chain.inovr = 0;
++    if (chain.row + 1u >= chain.config.count) {       /* (a loop: the chain again) */
++        if (!chain.loop) {
++            seq_stop();
++            return;
++        }
++        chain.row = 0xFFu;
++    }
+     chain.row++;
+     chain.remaining = chain.config.row[chain.row].repeat;
+-    chain_apply();
++    chain_apply(&chain.config.row[chain.row]);
+ }
 diff --git a/firmware/src/ui.c b/firmware/src/ui.c
-index e63d369..dfb84be 100644
+index e63d369..a283ac9 100644
 --- a/firmware/src/ui.c
 +++ b/firmware/src/ui.c
-@@ -435,6 +435,10 @@ static int page_visible(uint32_t i)
+@@ -11,6 +11,7 @@ static int project_new(void);
+ static int proj_changed(void);
+ static int project_used(uint32_t slot);
+ static uint32_t chain_prepare(void);
++static uint32_t chain_prepare_pat(const uint8_t *ids, uint32_t n, uint32_t cur);
+ static int up_used(uint32_t k);              /* user presets: upreset.c */
+ static int up_load(uint32_t k);
+ static uint32_t up_count(void);
+@@ -396,7 +397,7 @@ static uint32_t large_kind(void)
+         return home_tracks() ? LK_LABEL : LK_TALL;      /* a list page; the rows' names in M: draw_home_tracks) */
+     g = cur_page()->graph;
+     return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
+-           g == GR_SLICES || g == GR_EVENTS ? LK_LABEL : LK_TALL;
++           g == GR_SLICES || g == GR_EVENTS || g == GR_PAT ? LK_LABEL : LK_TALL;
+ }
+ /* the geometry of the page shown: the cards' height, the panel's top and height */
+ static uint32_t card_h(void) { return large_kind() == LK_TALL ? LG_CARD_H : CARD_H; }
+@@ -435,6 +436,10 @@ static int page_visible(uint32_t i)
          return ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
      if (PAGES[i].graph >= GR_FMOP && PAGES[i].graph <= GR_FMENV)
          return TSEL->eng_req % NENGINES == ENGI_FM6;
@@ -1512,7 +1849,7 @@ index e63d369..dfb84be 100644
  #if FELUCCA_SLICE
      if (PAGES[i].graph == GR_SLICES)
          return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
-@@ -1297,7 +1301,7 @@ static uint32_t preset_rank(const engine_t *e, uint32_t k)
+@@ -1297,7 +1302,7 @@ static uint32_t preset_rank(const engine_t *e, uint32_t k)
  
  #define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
  
@@ -1521,7 +1858,7 @@ index e63d369..dfb84be 100644
  /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
   * (fm4_convert.c). Every path that brings a DIGITAL sound into a track ends here: a track never keeps engine 1 */
  static void fm4_apply(track_t *t, int16_t *p)
-@@ -1345,7 +1349,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
+@@ -1345,7 +1350,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
  {
      const engine_t *e = ENGINES[t->eng_req % NENGINES];
      uint32_t i;
@@ -1530,7 +1867,7 @@ index e63d369..dfb84be 100644
      if (t->eng_req % NENGINES == ENGI_DIGITAL) {
          fm4_load_preset(t, pi);
          return;
-@@ -1393,7 +1397,7 @@ static void set_engine_of(track_t *t, uint32_t ei)
+@@ -1393,7 +1398,7 @@ static void set_engine_of(track_t *t, uint32_t ei)
  {
      const engine_t *e = ENGINES[ei % NENGINES];
      uint32_t i;
@@ -1539,7 +1876,7 @@ index e63d369..dfb84be 100644
      if (ei % NENGINES == ENGI_DIGITAL) {             /* DIGITAL (retired): its first preset, as FM6 */
          fm4_load_preset(t, 0);
          return;
-@@ -1423,7 +1427,7 @@ static void clean_engine_of(track_t *t)
+@@ -1423,7 +1428,7 @@ static void clean_engine_of(track_t *t)
  {
      uint32_t ei = t->eng_req % NENGINES, i;
      const engine_t *e = ENGINES[ei];
@@ -1548,11 +1885,30 @@ index e63d369..dfb84be 100644
      if (ei == ENGI_DIGITAL) {                         /* (retired: it becomes FM6, fm4_track) */
          set_engine_of(t, ei);
          return;
+@@ -1762,6 +1767,7 @@ static void track_select(uint32_t i)
+ }
+ 
+ #include "ui_slice.c"                             /* EDIT > SLICES: SLICE's slices by hand (an action page too) */
++#include "ui_pat.c"                               /* ARP (drum build): the drum patterns and their chain */
+ #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
+ #include "midi_learn.c"                           /* MIDI LEARN (1.5): GLO + D4, a knob, a CC */
+ 
 diff --git a/firmware/src/ui_draw.c b/firmware/src/ui_draw.c
-index 762d5a9..ceae307 100644
+index 762d5a9..5464c88 100644
 --- a/firmware/src/ui_draw.c
 +++ b/firmware/src/ui_draw.c
-@@ -501,6 +501,7 @@ static void span_mod_dst(const card_span_t *sp, int32_t v, char *val)   /* MOD's
+@@ -293,6 +293,10 @@ static int head_slot(char *b)
+     b[1] = b[2] = 0;
+     if (chain.running) {
+         s = chain.lane[k];
++        if (s >= CHAIN_PAT0 && s < CHAIN_PAT0 + CHAIN_PATN) {           /* a pattern: its number 1..8 */
++            b[0] = (char)('1' + (s - CHAIN_PAT0));
++            return 1;
++        }
+         b[0] = s < 4u ? (char)('A' + s) : '-';
+         return 1;
+     }
+@@ -501,6 +505,7 @@ static void span_mod_dst(const card_span_t *sp, int32_t v, char *val)   /* MOD's
  {
      str_cpy(val, mod_dst_name((const track_t *)sp->p, v), 16);
  }
@@ -1560,7 +1916,7 @@ index 762d5a9..ceae307 100644
  static void span_fop(const card_span_t *sp, int32_t v, char *val)       /* FM6's operator pages: card ctx's byte = v */
  {
      const char *l, *u;
-@@ -508,6 +509,7 @@ static void span_fop(const card_span_t *sp, int32_t v, char *val)       /* FM6's
+@@ -508,6 +513,7 @@ static void span_fop(const card_span_t *sp, int32_t v, char *val)       /* FM6's
      uint32_t ic;
      (void)fop_card_at((uint32_t)sp->ctx, v, &l, val, &u, &r, &ic);
  }
@@ -1568,7 +1924,7 @@ index 762d5a9..ceae307 100644
  static void card_span_by(void (*fn)(const card_span_t *, int32_t, char *), const void *p, int32_t lo, int32_t hi, int32_t ctx)
  {
      card_span.fn = fn;
-@@ -815,6 +817,7 @@ static void sound_name(const track_t *t, char *b)
+@@ -815,6 +821,7 @@ static void sound_name(const track_t *t, char *b)
          up_name(user_of(t), b);
          return;
      }
@@ -1576,7 +1932,7 @@ index 762d5a9..ceae307 100644
      if (t->eng_req == ENGI_FM6) {
          uint32_t tr = (uint32_t)(t - trk) % NTRK, k;
          int32_t s = fm6_slot[tr];
-@@ -829,6 +832,7 @@ static void sound_name(const track_t *t, char *b)
+@@ -829,6 +836,7 @@ static void sound_name(const track_t *t, char *b)
                  return;
          }
      }
@@ -1584,7 +1940,25 @@ index 762d5a9..ceae307 100644
      if (e->npresets)
          str_cpy(b, e->presets[t->preset % e->npresets].name, 16);
  }
-@@ -1176,6 +1180,7 @@ static void draw_columns(void)
+@@ -1010,6 +1018,17 @@ static void draw_columns(void)
+         draw_column(3, "REPS", val, "", used ? VAL(3u) : T_DIM, -1, ICON_AUTO);
+         return;
+     }
++    if (cur_page()->graph == GR_PAT) {                 /* PATTERN (ui_pat.c): the one now (or last picked), the chain, the queue */
++        val[0] = (char)('1' + (dp_now() & 7u));
++        val[1] = 0;
++        draw_column(0, "PAT", val, "", T_MID, -1, ICON_X_PATTERN);
++        fmt_int(val, chain.running ? (int32_t)chain.config.count : (int32_t)dpat.n);
++        draw_column(1, "CHAIN", val, "", T_MID, -1, ICON_NONE);
++        fmt_int(val, (int32_t)dp_queued());
++        draw_column(2, "QUEUE", val, "", T_MID, -1, ICON_NONE);
++        draw_column(3, "", chain.running ? "PLAY" : "STOP", "", chain.running ? T_ACCENT : T_DIM, -1, ICON_NONE);
++        return;
++    }
+     if (cur_page()->graph == GR_EVENTS) {              /* AUTOMATION (ui_events.c): ROW STEP PARAM VALUE */
+         const track_t *t = TSEL;
+         uint16_t rw[EV_ROWS];
+@@ -1176,6 +1195,7 @@ static void draw_columns(void)
          return;
      }
  #endif
@@ -1592,7 +1966,7 @@ index 762d5a9..ceae307 100644
      if (fop_page(cur_page()->graph)) {                   /* FM6: OP, then three of its bytes (ui_fm6op.c) */
          for (c = 0; c < 4u; c++) {
              const char *lb, *u;
-@@ -1193,6 +1198,7 @@ static void draw_columns(void)
+@@ -1193,6 +1213,7 @@ static void draw_columns(void)
          }
          return;
      }
@@ -1600,8 +1974,21 @@ index 762d5a9..ceae307 100644
      if (cur_page()->graph == GR_MOD) {                   /* SLOT, then that slot's SRC DST AMT */
          const track_t *t = TSEL;
          uint32_t id = P_M1SRC + 3u * mod_ui_slot;
+diff --git a/firmware/src/ui_events.c b/firmware/src/ui_events.c
+index 6012f44..8fff3bc 100644
+--- a/firmware/src/ui_events.c
++++ b/firmware/src/ui_events.c
+@@ -57,7 +57,7 @@ static int ev_id_ok(const track_t *t, uint32_t id)
+     const param_desc_t *d;
+     if (ev_sid(id))
+         return 1;
+-    if (id >= P_COUNT || !motion_param(id) || id == P_ED_FX || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
++    if (id >= P_COUNT || !motion_param(id) || id == P_ED_FX || P_IS_FMOP(id))
+         return 0;
+     if (id >= P_LN0 && id <= P_LN7)
+         return drum_track(t);
 diff --git a/firmware/src/ui_graph.c b/firmware/src/ui_graph.c
-index 0ae1efb..eed1fa6 100644
+index 0ae1efb..c9b76dd 100644
 --- a/firmware/src/ui_graph.c
 +++ b/firmware/src/ui_graph.c
 @@ -12,7 +12,9 @@
@@ -1623,17 +2010,18 @@ index 0ae1efb..eed1fa6 100644
          int32_t h = t->p[P_DIST + i] * 76 / 127, x = CARD_X(i) + 26;
          cv_rrect(x, 6, 4, 82, 2, T_RAISE, T_SURF);
          if (h > 3)
-@@ -446,6 +448,9 @@ static void graph_fx(const track_t *t, uint16_t c)
+@@ -446,6 +448,10 @@ static void graph_fx(const track_t *t, uint16_t c)
          cv_rrect(x - 4, 85 - h, 12, 6, 3, c, T_SURF);
      }
  }
 +#if FELUCCA_DRUMONLY
++#include "ui_patgfx.c"                                 /* PATTERN: the eight patterns and the chain */
 +#include "ui_faces.c"                                  /* the INSERT's devices, drawn as themselves */
 +#else                                                   /* (the old INSERT types' curves, and the SLICER page) */
  /* INSERT pages (1.5, fx.c track_insert): the drives and CRUSH as their curve, input (-1.5 .. +1.5 of a voice's full
   * scale) across, output up, dry and wet blended by MIX (fx.c ins_shape: the same shape; the dry diagonal RAISE); the
   * swept ones as two cycles of their sweep, as deep as DEPTH (FLANG the squared triangle, CHOR a sine, PHASR a
-@@ -501,6 +506,7 @@ static void graph_slicer(const track_t *t, uint16_t c)
+@@ -501,6 +507,7 @@ static void graph_slicer(const track_t *t, uint16_t c)
              cv_rect(x, 84, 9, 2, T_ACCENT);
      }
  }
@@ -1641,7 +2029,7 @@ index 0ae1efb..eed1fa6 100644
  /* MOD page: the four slots as rows "1 LFO > CUT +50%" (M, a list's rows: the source to x 78, the arrow 84..98, the
   * destination of up to 5 characters 106..160, the amount from 172), the one KNOB 2..4 edit selected, slots that do
   * nothing (SRC, DST or AMT at 0) dim */
-@@ -553,6 +559,7 @@ static uint32_t str_hash(uint32_t h, const char *s)
+@@ -553,6 +560,7 @@ static uint32_t str_hash(uint32_t h, const char *s)
      return h;
  }
  
@@ -1649,7 +2037,7 @@ index 0ae1efb..eed1fa6 100644
  /* One shared, reduced sample display. Decode only in the UI/main loop with a
   * private IMA state, 512 samples per frame; no audio voice state is touched.
   * Cache follows the sample zone, selected note and user-slot generation. */
-@@ -628,6 +635,7 @@ static void graph_sample(uint16_t c)
+@@ -628,6 +636,7 @@ static void graph_sample(uint16_t c)
          cv_line(left, 4, left, 90, T_MID); cv_line(right, 4, right, 90, T_MID);
      }
  }
@@ -1657,7 +2045,7 @@ index 0ae1efb..eed1fa6 100644
  
  #if FELUCCA_SLICE
  /* SLICES (ui_slice.c): the waveform from the marker before the selected one to the one after it (the selected
-@@ -684,6 +692,7 @@ static void graph_slices(void)
+@@ -684,6 +693,7 @@ static void graph_slices(void)
  }
  #endif
  
@@ -1665,7 +2053,7 @@ index 0ae1efb..eed1fa6 100644
  /* WHEEL: the nine drawbars as rounded bars over RAISE slots (the bars of the knob just turned: the accent),
   * their footages under them */
  static void graph_wheel(const track_t *t, uint16_t c)
-@@ -902,6 +911,7 @@ static void graph_fm6env(const track_t *t, uint16_t c)
+@@ -902,6 +912,7 @@ static void graph_fm6env(const track_t *t, uint16_t c)
      cv_text_r(228, 4 - GOY, &AF_S, b, T_TEXT, T_SURF);
  }
  
@@ -1673,7 +2061,7 @@ index 0ae1efb..eed1fa6 100644
  #if FELUCCA_FM4
  /* DIGITAL's eight algorithms as FM charts, read from src/eng_digital.c's switch (alg) (ui_test.c checks
   * these tables against it). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
-@@ -1189,6 +1199,10 @@ static uint32_t graph_signature(void)
+@@ -1189,6 +1200,10 @@ static uint32_t graph_signature(void)
      uint32_t h = 2166136261u, i;
      if (ui.home)
          return h ^ (ui.frame / 2u);                  /* scope: redraw every other frame */
@@ -1684,7 +2072,16 @@ index 0ae1efb..eed1fa6 100644
      h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
      if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
          return h ^ 0x5A17u;
-@@ -1219,8 +1233,16 @@ static uint32_t graph_signature(void)
+@@ -1203,6 +1218,8 @@ static uint32_t graph_signature(void)
+             h = (h ^ chord_last[song.sel].note[i]) * 16777619u;
+         h ^= (uint32_t)t->engine * 389u;             /* (MONO and kits follow the sounding engine) */
+     }
++    if (pg->graph == GR_PAT)
++        h = dp_sig(h);
+     if (pg->graph == GR_SONG) {
+         h ^= ui.song_row * 40503u + chain_config.count * 7919u + ui.song_trk * 3571u;
+         h = fnv(h, chain_config.row, sizeof chain_config.row);
+@@ -1219,8 +1236,16 @@ static uint32_t graph_signature(void)
      }
      if (pg->graph == GR_MOD)
          h ^= (mod_ui_slot + 1u) * 40503u;
@@ -1701,7 +2098,7 @@ index 0ae1efb..eed1fa6 100644
      if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
          for (i = 0; i < 4u; i++)
              h ^= (uint32_t)graph_project_used(i) << (20u + i);
-@@ -1232,6 +1254,7 @@ static uint32_t graph_signature(void)
+@@ -1232,6 +1257,7 @@ static uint32_t graph_signature(void)
  #if FELUCCA_SLICE
      if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
  #endif
@@ -1709,7 +2106,7 @@ index 0ae1efb..eed1fa6 100644
      if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
                                     (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
          h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
-@@ -1239,6 +1262,7 @@ static uint32_t graph_signature(void)
+@@ -1239,6 +1265,7 @@ static uint32_t graph_signature(void)
                                                       * levels, FB; the operator pages: the operator, the stage) */
          h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + (fop_op + 1u) * 40503u + (fop_stg + 1u) * 7919u;
      if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) h ^= sample_wave.pos * 13u + sample_wave.key;
@@ -1717,7 +2114,7 @@ index 0ae1efb..eed1fa6 100644
      if (pg->graph == GR_ROLL) {
          uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
          if (ph / 16u != ui.bank)
-@@ -2244,7 +2268,9 @@ static void draw_graph(void)
+@@ -2244,7 +2271,9 @@ static void draw_graph(void)
          draw_home_tracks();
          return;
      }
@@ -1727,7 +2124,7 @@ index 0ae1efb..eed1fa6 100644
      sig = graph_signature();
      if (!ui.force && sig == ui.graph_sig)
          return;
-@@ -2292,12 +2318,18 @@ static void draw_graph(void)
+@@ -2292,12 +2321,18 @@ static void draw_graph(void)
          case GR_FX:
              graph_fx(t, c);
              break;
@@ -1746,7 +2143,20 @@ index 0ae1efb..eed1fa6 100644
          case GR_MOD:
              cv_oy = 0;
              graph_mod(t, c);
-@@ -2336,6 +2368,7 @@ static void draw_graph(void)
+@@ -2318,6 +2353,12 @@ static void draw_graph(void)
+             cv_oy = 0;
+             graph_song();
+             break;
++#if FELUCCA_DRUMONLY
++        case GR_PAT:
++            cv_oy = 0;
++            graph_pat();
++            break;
++#endif
+         case GR_PATS:
+             cv_oy = 0;
+             graph_pats();
+@@ -2336,6 +2377,7 @@ static void draw_graph(void)
              graph_slices();
              break;
  #endif
@@ -1754,7 +2164,7 @@ index 0ae1efb..eed1fa6 100644
          case GR_FMOP:
          case GR_FMOP2:
              if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */
-@@ -2343,10 +2376,15 @@ static void draw_graph(void)
+@@ -2343,10 +2385,15 @@ static void draw_graph(void)
          case GR_FMENV:
              if (fop_ok()) graph_fm6env(t, c);
              break;
@@ -1770,8 +2180,20 @@ index 0ae1efb..eed1fa6 100644
  #if FELUCCA_FM4
              else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                  graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
+diff --git a/firmware/src/ui_help.c b/firmware/src/ui_help.c
+index 0cdd918..98d3628 100644
+--- a/firmware/src/ui_help.c
++++ b/firmware/src/ui_help.c
+@@ -47,6 +47,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
+     {"PHRASES", "[K1]PHRASE[OCT+]LOAD[SAVE]PROJECT"},
+     {"PROJECT", "[K2]ERASE[K3]LOAD[K4]SAVE"},   /* (1.5.5, #199: ERASE; 1.8: LOAD) */
+     {"TOOLS", "[K1]CLEAR[K2]INIT, CLEAN[OCT+]DO"},   /* (1.5.5, #190: KNOB 2 on, CLEAN INIT) */
++    {"PATTERN", "[KEYS]PATTERN[OCT]STEP[ARP]BACK"},
+     {"ARP", "[K1]MODE[KEYS]CHORD[ARP]ARP 2"},
+     {"ARP 2", "[K3]HOLD[K4]ORDER[ARP]ARP"},   /* (1.8: as its card) */
+     {"STEP", "[REC]WRITE[K1]STEP[SEQ]DETAIL"},   /* (1.5.1: SEQ to DETAIL; 1.8: the keys write once armed) */
 diff --git a/firmware/src/ui_input.c b/firmware/src/ui_input.c
-index 5d181cf..e3c6c41 100644
+index 5d181cf..0adf136 100644
 --- a/firmware/src/ui_input.c
 +++ b/firmware/src/ui_input.c
 @@ -45,7 +45,11 @@ static uint32_t cur_fam(void) { return ui.home ? FAM_HOME : cur_page()->fam; }
@@ -1786,6 +2208,24 @@ index 5d181cf..e3c6c41 100644
          t->p[P_ATAMT] = 32;
      }
      ui_message("AT: F3-C5 KEYS ONLY");
+@@ -93,7 +97,7 @@ static int mom_turn(uint32_t k, int32_t s)
+     } else {
+         if (act_cols() || lock_held() || !(pg->scope == SC_TRACK || pg->scope == SC_ENGINE || pg->scope == SC_GLOBAL) ||
+             pg->graph == GR_EVENTS || pg->graph == GR_SONG || pg->graph == GR_BROWSE || pg->graph == GR_USER ||
+-            pg->graph == GR_PATS || (pg->graph == GR_SLICES && k < 2u) || (pg->graph == GR_MOD && k == 0u))
++            pg->graph == GR_PATS || pg->graph == GR_PAT || (pg->graph == GR_SLICES && k < 2u) || (pg->graph == GR_MOD && k == 0u))
+             return 0;
+         d = page_desc(pg, k, &vp);
+     }
+@@ -374,7 +378,7 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
+     if (br)
+         *br = 0;
+     c = name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds(br) : grid_on() ? grid_leds() :
+-                 (fm1_in.notes & ~kb_layer) | play_leds() | step_leds() | (song_keys_on() ? song_leds() : 0u);
++                 (fm1_in.notes & ~kb_layer) | play_leds() | step_leds() | (song_keys_on() ? song_leds() : 0u) | (dp_keys_on() ? dp_leds() : 0u);
+ #if FELUCCA_SLICE
+     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
+         c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
 @@ -1058,10 +1062,12 @@ static void edit_param(uint32_t slot, int32_t steps)
              ui.ppick = (uint8_t)clamp((int32_t)pat_pick() + steps, 0, (int32_t)pat_count() - 1);
          return;
@@ -1822,7 +2262,25 @@ index 5d181cf..e3c6c41 100644
      if (pg->scope != SC_GLOBAL) {
          motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
          ml_knob(TSEL, (uint32_t)(vp - TSEL->p));        /* (MIDI LEARN: picked) */
-@@ -1519,7 +1537,7 @@ static void ui_input(void)
+@@ -1319,7 +1337,7 @@ static void presets_turn(int32_t s)
+         edit_param(0, s);                                 /* KNOB 1's (STEP: STOP TO EDIT while a song plays) */
+         ui.hot_col = 0;
+         ui.hot_t = 40;
+-    } else if (g != GR_TOOLS && g != GR_SLICES) {
++    } else if (g != GR_TOOLS && g != GR_SLICES && g != GR_PAT) {
+         preset_step(s);
+     }
+ }
+@@ -1401,6 +1419,8 @@ static int page_tap(uint32_t b)
+         name_rename();                                  /* SAVE > USER / PROJECT: EDIT renames the slot */
+         return 1;
+     }
++    if (b == B_ARP && dp_arp_tap())                     /* ARP (drum build): PATTERN and back */
++        return 1;
+     for (f = FAM_HOME + 1u; f < FAM_COUNT; f++)        /* (GLO SEQ SAVE ..: HOME is ui_input's, home_tap) */
+         if (FAM_BTN[f] == b && b != B_HOME) {
+             open_family(f);
+@@ -1519,7 +1539,7 @@ static void ui_input(void)
      midi_take();                                        /* (MIDI IN notes: lights, SCREEN WAKE, AUTO SELECT's) */
      midi_pc_poll();                                     /* MIDI Program Change (before fm6_poll: a bank voice) */
      fm6_poll();                                         /* FM6: PTCH turned -> its patch */
@@ -1831,6 +2289,35 @@ index 5d181cf..e3c6c41 100644
      for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
          if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
              fm4_track(&trk[k]);
+@@ -1729,6 +1749,8 @@ static void ui_input(void)
+                 transport_req = 2;
+             else if (!ui.home && cur_page()->graph == GR_SONG)
+                 chain_play_ui();
++            else if (dp_page_on())
++                dp_play();
+             else
+                 transport_req = 1;
+             break;
+@@ -1744,6 +1766,10 @@ static void ui_input(void)
+         case B_OCTDN:
+         case B_OCTUP: {
+             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
++            if (dp_keys_on()) {                        /* PATTERN: the previous / next pattern (both: the chain clears) */
++                dp_oct(b == B_OCTDN ? -1 : 1, (fm1_in.buttons & both) == both);
++                break;
++            }
+             if (act_cols() || layer_set_open() || ui.ml.on)   /* action pages: enter / back (below); SET layers: OCT-; */
+                 break;                                  /* MIDI LEARN: clear / done (below) */
+             if ((fm1_in.buttons & both) == both)
+@@ -1781,6 +1807,8 @@ static void ui_input(void)
+     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
+     if (song.grid == 3u) {
+         song_keys(notes);
++    } else if (song.grid == 4u) {
++        dp_keys(notes);
+     } else if (song.grid) {
+         grid_keys(notes);
+     } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP */
 diff --git a/firmware/src/ui_layer.c b/firmware/src/ui_layer.c
 index 7013a8a..7c03a06 100644
 --- a/firmware/src/ui_layer.c
@@ -1846,6 +2333,22 @@ index 7013a8a..7c03a06 100644
      perf_map_put(fx_keys, p, i ? i - 1u : PF_N);
      lys.rp_dirty = 1;
      fx_map_sync();
+diff --git a/firmware/src/ui_name.c b/firmware/src/ui_name.c
+index 7be93cd..89f6e02 100644
+--- a/firmware/src/ui_name.c
++++ b/firmware/src/ui_name.c
+@@ -57,9 +57,9 @@ static void name_close(void)
+         ui.force = 1;
+     nm.kind = NK_NONE;
+ }
+-/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 3 = SONG's A..D (ui.c song_keys_on), 0 = notes (seq.c keyboard_block
++/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 3 = SONG's A..D (ui.c song_keys_on), 4 = PATTERN's 1..8 (ui_pat.c), 0 = notes (seq.c keyboard_block
+  * reads song.grid) */
+-static uint32_t keys_mode(void) { return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : 0u; }
++static uint32_t keys_mode(void) { return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : dp_keys_on() ? 4u : 0u; }
+ 
+ static const char *nm_group(uint32_t p)                /* white key place p's characters */
+ {
 diff --git a/firmware/src/upreset.c b/firmware/src/upreset.c
 index 4766bf6..daf1988 100644
 --- a/firmware/src/upreset.c

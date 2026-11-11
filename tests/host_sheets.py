@@ -66,6 +66,14 @@ if (shots / "NIGHT_master_A.png").exists():      # the master chain's pages (MAS
         dr.text((i * 248 + 4, 2), t, fill=(200, 200, 200))
     img.save(out / "screens_master.png")
 
+if (shots / "NIGHT_pattern_chain.png").exists():          # PATTERN (ARP's page): a chain, and playing with two queued
+    img = Image.new("RGB", (240 * 2 + 8, 256), (24, 24, 24))
+    dr = ImageDraw.Draw(img)
+    for i, (n, t) in enumerate((("pattern_chain", "PATTERN: a chain of five, stopped"), ("pattern_playing", "PLAYING 3rd, patterns 2 and 6 queued"))):
+        img.paste(Image.open(shots / f"NIGHT_{n}.png"), (i * 248, 16))
+        dr.text((i * 248 + 4, 2), t, fill=(200, 200, 200))
+    img.save(out / "screens_pattern.png")
+
 # waveform + spectrogram per kit
 kits = [(f.stem, f.stem.split("_", 2)[2]) for f in sorted(audio.glob("kit_*.wav"))]
 W, RH, SH = 900, 110, 90

@@ -55,10 +55,12 @@ echo "host_render: flags $FLAGS"
 
 HALI="-Ifirmware/hal -Ifirmware/bsp/chip -Ifirmware/bsp/boards/fm1 -Ifirmware/src"
 FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c | head -n 1)
-cp "$ROOT/tests/render_kits.c" "$ROOT/tests/render_screens.c" "$ROOT/tests/drum_ui_stubs.h" tests/
+cp "$ROOT/tests/render_kits.c" "$ROOT/tests/render_screens.c" "$ROOT/tests/pattern_test.c" "$ROOT/tests/song_probe_check.c" "$ROOT/tests/drum_ui_stubs.h" tests/
 # Felucca's test harness also names the engines that a drum-only build does not have (DIGITAL's conversion, FM6's chart
 # self-checks, SAMPLE's waveform): the same guards the firmware got, and the stand-ins in tests/drum_ui_stubs.h
 sed -i 's/^#if !FELUCCA_FM4$/#if !FELUCCA_FM4 \&\& !FELUCCA_DRUMONLY/' tests/hostsim.c tests/ui_test.c tests/ui_render.c
+# ARP's button is the PATTERN page in the drum build (ARP's own pages are not there): the lint's "arp" screen is that page
+sed -i 's/case S_ARP: go_title("ARP"); break;/case S_ARP: go_title("PATTERN"); break;/' tests/ui_render.c
 sed -i 's/if (fmp_charts - c0 != 32u)/if (!FELUCCA_DRUMONLY \&\& fmp_charts - c0 != 32u)/; s/if (fmp_charts - c0 != 384u)/if (!FELUCCA_DRUMONLY \&\& fmp_charts - c0 != 384u)/' tests/ui_render.c
 sed -i 's|^#include "../firmware/src/slicer.c"$|#if !FELUCCA_DRUMONLY\n#include "../firmware/src/slicer.c"\n#endif|' tests/hostsim.c tests/ui_test.c
 $PY - <<'PYEOF'
@@ -79,6 +81,13 @@ PATH="$ROOT/build/venv/bin:$PATH" sh "$ROOT/tests/host_size.sh" "$(echo "$FLAGS"
 build/host/render_kits "$OUT/kits" | tee "$OUT/kits/levels.txt"
 # a hit struck again while it sounds must start over (a sample kit once went on from where it was)
 awk '/^retrigger/ { if ($NF + 0 < 0.7) { print "host_render: FAIL, a retriggered hit did not start over (" $NF ")"; bad = 1 } } END { exit bad }' "$OUT/kits/levels.txt"
+# PATTERN mode and SONG's chain on Felucca's UI test stubs (tests/pattern_test.c)
+cc -O1 -w $HALI $FLAGS "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o build/host/pattern_test tests/pattern_test.c -lm
+# .. and a song of rows plays bit for bit as before (the stock configuration: no DRUMONLY, so its REV is Felucca's)
+cc -O1 -w $HALI "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o build/host/song_probe_check tests/song_probe_check.c -lm
+build/host/song_probe_check | tee "$OUT/pattern_test.txt"
+build/host/pattern_test | tee -a "$OUT/pattern_test.txt"
+grep -q "song_probe_check: .* ok" "$OUT/pattern_test.txt" && grep -q "pattern_test: ok" "$OUT/pattern_test.txt" || { echo "host_render: FAIL, the pattern tests"; exit 1; }
 build/host/render_screens "$OUT/screens"
 mkdir -p build/ui_new/ppm build/ui_slot
 build/host/ui_render build/ui_new build/ui_slot 2>&1 | tail -4 | tee "$OUT/ui_lint.txt"

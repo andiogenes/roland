@@ -103,6 +103,33 @@ pages **MASTER A**, **MASTER A 2**, **MASTER B** and **MASTER B 2** next to INSE
 state apiece. Both slots OFF: the master path is as before, bit for bit. The chain belongs to the device, not to a project: it is kept
 with the settings (`favorites.factory[14]`, the bytes no engine of this build uses), so a project load does not change it.
 
+## Patterns: the ARP button
+
+The drum track has **eight patterns of 32 steps**. They are the halves of the four project slots: the first two pages of a slot's
+64 steps are one pattern, the last two another (patterns 1 2 = slot A, 3 4 = B, 5 6 = C, 7 8 = D), so there is no new file format:
+write steps 1..32 and 33..64 in the sequencer, **SAVE** the project to a slot (**PROJECT**), and its two patterns are there. A
+slot's LEN decides how long its halves are (LEN 40: pattern 1 has 32 steps, pattern 2 has 8).
+
+<p align="center"><img src="docs/host-render/screens_pattern.png" alt="The PATTERN page, stopped with a chain, and playing with two queued" width="720"></p>
+
+**ARP** (the arpeggiator's page is not in this build) is the switch between sequencing and the **PATTERN** page, and taps back to
+the page you left. There:
+
+* the eight white keys **F G A B C D E F** (the lowest eight) are patterns **1..8**; a pattern whose slot is not saved says so and is
+  not taken. **OCT-** / **OCT+** step to the previous / next saved pattern (the keys' octave is not used here); both together clear
+  the chain.
+* **PLAY stopped**: the keys **build a chain** (up to 16), shown as a strip of cells; PLAY plays it, round and round. With no chain,
+  PLAY loops the pattern last picked.
+* **PLAYING**: a key **queues** that pattern; it plays once, when the pattern now playing ends (at the loop, not in the middle), then
+  the chain goes on from where it was. Up to 8 can be queued (shown as NEXT). If the chain is one pattern, the queued one
+  **replaces** it and loops. The key LEDs show the pattern playing and the queued ones.
+* The patterns play with the current sounds, each track with its own steps, LEN/DIV/SWING/GATE and QUANTIZE from the slot (the
+  slot's automation is not played in pattern mode). STOP puts the editor's pattern back as it was.
+
+It uses the song's chain engine (`song_chain.c`, a lane id 5..12 is a half of a slot) and `tests/pattern_test.c` checks it: the
+halves, the loop, the queue, the replace, OCT, the refusals, and that SONG's own rows still play bit for bit as before
+(`tests/song_probe_check.c`).
+
 ## Status: read this first
 
 | | |
@@ -203,6 +230,10 @@ Tests (`python3 -I tests/test_X.py`, each; need `cc` and numpy for some): `test_
   the two-slot master chain, the tape echo and the Dragonfly Room (all below). Stored values keep their ids (a project with a DIST
   amount loads, and the amount is ignored); the modulation matrix's DIST and CHO destinations are retired the same way (they load as
   OFF). Turning an INSERT's (or a master slot's) TYPE puts that device's own starting values on its knobs.
+* **Patterns on ARP's button** (above; `overlay/firmware/src/ui_pat.c`, `ui_patgfx.c`, the chain engine in `song_chain.c`, `chain_prepare_pat` in
+  `project.c`): ARP's pages are replaced by PATTERN. **A fix on the way**: the INSERT's fourth and fifth values had made a project
+  4 x 2 bytes larger than FUN10 holds (the save refused with SAVE FORMAT ERROR; nothing had been saved with it). They now ride on two
+  of DIGITAL's unused OP4 ENV parameters (`P_ID` / `P_IE` in `core.h`), so the project format is Felucca's again.
 * **The delay is a tape echo** (FX plan step 3, `overlay/firmware/src/fx_tape.c`): the read head wanders (wow about 0.2 % of pitch, flutter
   0.05 %), what goes onto the tape is soft-clipped, and each repeat goes through the COLR low-pass as before. TIME, FDBK, COLR and MIX
   keep their meaning; ECHO THROW and the tempo-synced times work as they did. `tests/test_tape.py` checks the wander and the tap.
